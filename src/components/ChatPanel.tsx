@@ -7,6 +7,9 @@ import ReactMarkdown from 'react-markdown';
 import { cn } from '@/lib/utils';
 import { toast } from "@/components/ui/sonner";
 import { Node, Edge } from '@xyflow/react';
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 
 const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001';
 
@@ -29,6 +32,7 @@ interface ChatPanelProps {
   nodes: Node[];
   edges: Edge[];
   setChatMessages: Dispatch<SetStateAction<ChatMessage[]>>;
+  githubUser: any;
 }
 
 type CommandMode = 'prompt' | 'repo' | 'codegen' | null;
@@ -68,7 +72,8 @@ const ChatPanel = ({
   onCollapse,
   nodes,
   edges,
-  setChatMessages
+  setChatMessages,
+  githubUser
 }: ChatPanelProps) => {
   const [inputValue, setInputValue] = useState('');
   const [showCommandPopup, setShowCommandPopup] = useState(false);
@@ -83,6 +88,17 @@ const ChatPanel = ({
   const [isCodegenModalOpen, setIsCodegenModalOpen] = useState(false);
   const [modalCodegenPlan, setModalCodegenPlan] = useState<any>(null);
   const [modalCodegenFiles, setModalCodegenFiles] = useState<any[]>([]);
+  
+  // NEW: State for GitHub repo details
+  const [pushToGithub, setPushToGithub] = useState(false);
+  const [githubOwner, setGithubOwner] = useState(githubUser?.login || '');
+  const [githubRepoName, setGithubRepoName] = useState('');
+
+  useEffect(() => {
+    if (githubUser) {
+      setGithubOwner(githubUser.login);
+    }
+  }, [githubUser]);
 
   // Update filtered commands based on input
   useEffect(() => {
@@ -116,6 +132,14 @@ const ChatPanel = ({
     setCommandMode(null);
     setInputValue('');
     inputRef.current?.focus();
+    // Clear GitHub fields when canceling codegen mode
+    setPushToGithub(false);
+    setGithubRepoName('');
+    if (githubUser) {
+      setGithubOwner(githubUser.login);
+    } else {
+      setGithubOwner('');
+    }
   };
 
   // Placeholder for actual API call
@@ -213,6 +237,11 @@ echo "Setting up repository..."
         toast.success('Repository Script Generated', { id: loadingToastId, description: `Script added to chat. Click to view.` });
         // --- End modal logic ---
       } else if (mode === 'codegen') {
+        if (pushToGithub && (!githubOwner || !githubRepoName)) {
+          toast.error("GitHub owner and repository name are required for GitHub push.", { id: loadingToastId });
+          return;
+        }
+
         // --- Call backend to generate the code project ---
         const response = await fetch(`${apiUrl}/api/multi-agent-generate`, {
           method: 'POST',
@@ -222,6 +251,10 @@ echo "Setting up repository..."
             chatHistory: messages,
             userContext: userPrompt,
             saveToDisk: true,
+            // NEW: GitHub related parameters
+            pushToGithub: pushToGithub,
+            githubOwner: githubOwner,
+            githubRepoName: githubRepoName,
           }),
         });
         if (!response.ok) {
@@ -232,7 +265,15 @@ echo "Setting up repository..."
         setModalCodegenPlan(result.plan);
         setModalCodegenFiles(result.files);
         setIsCodegenModalOpen(true);
-        toast.success('Code Generation Complete', { id: loadingToastId, description: `Project files generated and saved to server.` });
+
+        if (result.githubPushResult && result.githubPushResult.success) {
+          toast.success('Code Generation Complete', { id: loadingToastId, description: `Project files generated and pushed to GitHub repository: ${githubOwner}/${githubRepoName}.` });
+        } else if (result.githubPushResult && result.githubPushResult.error) {
+            toast.error('Code Generation Complete with GitHub Push Error', { id: loadingToastId, description: `Project files generated, but failed to push to GitHub: ${result.githubPushResult.error}` });
+        } else {
+          toast.success('Code Generation Complete', { id: loadingToastId, description: `Project files generated and saved to server.` });
+        }
+        
         // Add message to chat history
         const newMessage: ChatMessage = {
           id: `codegen-msg-${Date.now()}`,
@@ -454,27 +495,72 @@ echo "Setting up repository..."
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="flex items-end space-x-2"> 
-          <Textarea
-            ref={inputRef}
-            value={inputValue}
-            onChange={handleInputChange}
-            placeholder={getPlaceholderText()}
-            className="flex-grow resize-none max-h-[150px] bg-background"
-            rows={1}
-            onKeyDown={handleKeyDown}
-            disabled={isGenerating && commandMode === null}
-            aria-label="Chat input"
-          />
-          <Button
-            type="submit"
-            disabled={isGenerating || !inputValue.trim()}
-            className="h-9 w-9 p-0 flex-shrink-0"
-            variant="ghost"
-            aria-label="Send message"
-          >
-            <Send className="h-4 w-4" />
-          </Button>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          {commandMode === 'codegen' && (
+            <div className="p-4 border rounded-md bg-zinc-50 dark:bg-zinc-800">
+              <h4 className="text-sm font-semibold mb-2">GitHub Repository Details</h4>
+              <div className="grid gap-2">
+                <Label htmlFor="github-owner">Repository Owner</Label>
+                <Input
+                  id="github-owner"
+                  value={githubOwner}
+                  onChange={(e) => setGithubOwner(e.target.value)}
+                  placeholder="e.g., your-username"
+                  disabled
+                />
+                <Label htmlFor="github-repo-name">Repository Name</Label>
+                <Input
+                  id="github-repo-name"
+                  value={githubRepoName}
+                  onChange={(e) => setGithubRepoName(e.target.value)}
+                  placeholder="e.g., my-new-project"
+                />
+                <div className="flex items-center space-x-2 mt-2">
+                  <Checkbox
+                    id="push-to-github"
+                    checked={pushToGithub}
+                    onCheckedChange={(checked) => setPushToGithub(checked as boolean)}
+                  />
+                  <Label htmlFor="push-to-github">Push generated code to GitHub</Label>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="flex items-end space-x-2 w-full">
+            <Textarea
+              ref={inputRef}
+              value={inputValue}
+              onChange={handleInputChange}
+              onKeyDown={handleKeyDown}
+              placeholder={getPlaceholderText()}
+              className="flex-grow resize-none max-h-[150px] bg-background pr-12"
+              rows={1}
+              disabled={isGenerating && commandMode === null}
+              aria-label="Chat input"
+            />
+            {commandMode === null ? (
+              <Button
+                type="submit"
+                disabled={isGenerating || !inputValue.trim()}
+                className="h-9 w-9 p-0 flex-shrink-0"
+                variant="ghost"
+                aria-label="Send message"
+              >
+                <Send className="h-4 w-4" />
+              </Button>
+            ) : (
+              <Button
+                type="submit"
+                disabled={isGenerating || !inputValue.trim() || (commandMode === 'codegen' && pushToGithub && (!githubOwner || !githubRepoName))}
+                className="h-9 w-9 p-0 flex-shrink-0"
+                variant="default"
+                aria-label="Generate code"
+              >
+                {isGenerating ? <Loader className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              </Button>
+            )}
+          </div>
         </form>
       </div>
 
@@ -593,7 +679,6 @@ echo "Setting up repository..."
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
     </div>
   );
 };

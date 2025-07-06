@@ -1,23 +1,35 @@
 import os
 import json
 import textwrap
-from flask import Flask, request, jsonify
+import requests # NEW IMPORT
+import asyncio # NEW IMPORT
+from flask import Flask, request, jsonify, session, redirect, url_for
 from flask_cors import CORS
 from dotenv import load_dotenv # Keep import
 import google.generativeai as genai
 import traceback # Import traceback for better error logging
+import secrets # NEW IMPORT
+from google.generativeai.types import HarmCategory, HarmBlockThreshold
+from llm_prompt_builder import generate_llm_builder_prompt
 from multi_agent_codegen import multi_agent_generate_backend
+from repo_builder import generate_repo_builder_script_with_gemini # Corrected to import function directly
 
 # --- Import generator functions ---
 # from prompt_generator import format_prompt_from_data # Keep if still used
-from llm_prompt_builder import generate_llm_builder_prompt # Import the new function
-from repo_builder import generate_repo_builder_script_with_gemini # Import repo builder function
+# from repo_builder import generate_repo_builder_script_with_gemini # This line is redundant now, removed
 # ----------------------------------
+
+# Load environment variables
+load_dotenv()
+
 api_key = "AIzaSyA-IwMGX27O_eKKB9klqbiBbOMgh8WEPDo"
 app = Flask(__name__)
+app.secret_key = os.urandom(24) # Set a secret key for session management
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax' # Adjust for cross-site cookie handling
+app.config['SESSION_COOKIE_SECURE'] = False # Set to False for HTTP (localhost) development
 # Allow requests from frontend (adjust origin if your frontend runs elsewhere)
 # More explicit CORS setup
-frontend_url = os.getenv("FRONTEND_URL", "http://localhost:8080").rstrip('/')
+frontend_url = "http://localhost:8080" # Explicitly set for consistency with frontend
 
 CORS(
     app,
@@ -26,6 +38,22 @@ CORS(
     allow_headers=["Content-Type"],
     methods=["GET", "POST", "OPTIONS"]
 )
+
+# Configure Gemini API
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") # Ensure this is loaded from .env
+if not GEMINI_API_KEY:
+    raise ValueError("GEMINI_API_KEY not found in environment variables")
+
+# Configure GitHub OAuth
+GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID")
+GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET")
+
+if not GITHUB_CLIENT_ID or not GITHUB_CLIENT_SECRET:
+    print("WARNING: GitHub Client ID or Secret not found in environment variables. GitHub integration will not work.")
+
+
+# In-memory storage for simplicity (replace with a database for production)
+user_sessions = {}
 
 # --- Gemini API Setup ---
 def setup_gemini_api():
@@ -220,348 +248,354 @@ def modify_or_replace_graph(existing_graph_json, user_request):
     You are a senior software architect updating a tech stack diagram.
     You are given an existing tech stack graph and a user request.
 
-    Existing tech stack graph (React Flow JSON format):
-    ```json
-    {existing_graph_str}
-    ```
+    Existing Graph: {existing_graph_str}
 
-    User request: "{user_request}"
+    User Request: {user_request}
 
-    Analyze the user request in the context of the *existing* graph.
-    
-    1. **Modification Task:** If the request asks for a specific change, addition, or removal related to the *current* tech stack (e.g., 'change the database to MongoDB', 'add Redis for caching', 'use Next.js instead of Create React App'), modify the *existing* graph JSON minimally to fulfill the request. Update node labels, types, details, positions, and edges as necessary. Ensure IDs remain consistent where possible, but generate new unique IDs for new nodes/edges.
-    
-    2. **Replacement Task:** If the user request describes a *completely different* application or a fundamental architectural shift unrelated to the current graph (e.g., the current graph is for a 'Twitter clone' and the request is 'create a mini reddit', or 'design an e-commerce backend'), then **ignore the existing graph** and generate a brand new, complete graph based *only* on the user request.
+    Return ONLY a valid JSON object with this exact structure compatible with React Flow, representing the *updated* graph. If the request implies a completely different graph, generate a new one. Provide a `nodes` and `edges` array. If no change is needed, return the original JSON. The `id`s for nodes and edges should remain unique.
 
-    **Output Format:**
-    Return ONLY the resulting valid JSON object (either modified or brand new) with the exact structure compatible with React Flow:
-    {{
-      "nodes": [
-        {{
-          "id": "node_unique_string_id_1",  // Unique STRING ID (e.g., "node_react", "node_postgres")
-          "type": "techNode",              // Default node type for React Flow
-          "position": {{ "x": 100, "y": 200 }}, // REQUIRED x/y position
-          "data": {{                    // Data payload for the node
-            "label": "Component Name",   // The display name (e.g., "React", "PostgreSQL")
-            "type": "frontend|backend|database|api|deployment|custom", // Categorical type
-            "details": "Detailed description of this component..." // DETAILED DESCRIPTION HERE
-          }}
-        }}
-        // ... more nodes
-      ],
-      "edges": [
-        {{
-          "id": "edge_unique_string_id_1", // Unique STRING ID (e.g., "edge_react_to_api")
-          "source": "node_react_id",           // Source node STRING ID
-          "target": "node_api_id",             // Target node STRING ID
-          "type": "default",                 // Optional: React Flow edge type
-          "markerEnd": {{ "type": "arrowclosed" }} // Add arrowheads
-        }}
-        // ... more edges
-      ]
-    }}
-    Ensure `data.details` contains relevant technical specifications (versions, configs, etc.).
-    Ensure the final output is ONLY the valid JSON object.
+    **Critical Instructions:**
+    - If adding new nodes, ensure they have unique string `id`s, `type: "techNode"`, `position` (x,y), and `data` with `label`, `type`, and `details`.
+    - If adding new edges, ensure they have unique string `id`s, `source`, `target`, `type: "default"`, and `markerEnd`.
+    - Preserve existing node and edge IDs unless they are being fundamentally replaced.
+    - Ensure the JSON is well-formed.
     """)
     # --- END PROMPT --- 
 
     try:
-        print(f"Sending prompt to Gemini for graph MODIFICATION/REPLACEMENT: {user_request[:50]}...")
+        print(f"Sending prompt to Gemini for graph modification: {user_request[:50]}...")
         response = gemini_model.generate_content(prompt)
 
-        # Handle potential safety blocks or empty responses
         if not response.parts:
-             # ... (handle blocked/empty) ...
-             return create_mock_tech_stack(user_request) # Or return existing_graph_json?
+            feedback = response.prompt_feedback
+            print(f"Warning: Gemini response blocked or empty. Feedback: {feedback}")
+            return existing_graph_json # Return original if blocked
+        
         response_text = response.text
-        # ... (JSON extraction logic) ...
-        tech_stack = None
+        print("Received response text from Gemini (React Flow format expected for modification).")
+
+        updated_graph = None
         try:
             json_start = response_text.find('{')
             json_end = response_text.rfind('}') + 1
             if json_start != -1 and json_end != 0:
                 json_str = response_text[json_start:json_end]
-                tech_stack = json.loads(json_str)
-            else: raise ValueError("No JSON object found...")
+                updated_graph = json.loads(json_str)
+            else:
+                 raise ValueError("No JSON object structure found in response.")
         except (json.JSONDecodeError, ValueError) as json_e:
-             # ... (handle JSON error) ...
-             return create_mock_tech_stack(user_request) # Or return existing_graph_json?
-        # ... (validation) ...
-        if not isinstance(tech_stack.get('nodes'), list) or not isinstance(tech_stack.get('edges'), list):
-              return create_mock_tech_stack(user_request) # Or return existing_graph_json?
-        print(f"Successfully generated MODIFIED/REPLACED graph for: {user_request[:50]}...")
-        return tech_stack
-        
-    except Exception as e:
-        print(f"Error during Gemini call for graph MODIFICATION/REPLACEMENT: {e}")
-        return create_mock_tech_stack(user_request) # Or return existing_graph_json?
+            print(f"JSON Decode Error (Modification): {json_e}")
+            print(f"Response Text causing error:\n---\n{response_text}\n---")
+            return existing_graph_json # Return original if invalid JSON
 
-# --- Helper: Generate Explanation for Graph ---
+        if not isinstance(updated_graph.get('nodes'), list) or not isinstance(updated_graph.get('edges'), list):
+             print("Generated JSON for modification has incorrect structure, returning original.")
+             return existing_graph_json
+
+        print(f"Successfully modified graph for: {user_request[:50]}...")
+        return updated_graph
+
+    except Exception as e:
+        print(f"Error during Gemini call for graph modification: {e}, returning original graph.")
+        return existing_graph_json
+
+# --- Helper: Generate Graph Explanation ---
 def generate_graph_explanation(graph_json, original_prompt):
-    """Uses Gemini to generate an explanation for a given tech stack graph JSON,
-       considering the original user prompt.
-    """
+    """Uses Gemini to generate an explanation for a given tech stack graph."""
     if not gemini_model:
-        print("Gemini model not initialized. Cannot generate explanation.")
-        return "Error: AI model not available to generate explanation."
+        print("Gemini model not initialized, cannot generate explanation.")
+        return "# Error: AI model not available for explanation."
 
     try:
         graph_str = json.dumps(graph_json, indent=2)
     except TypeError:
-        graph_str = str(graph_json) 
+        graph_str = str(graph_json)
         print("Warning: Could not serialize graph to JSON for explanation prompt.")
 
-    # --- Updated Prompt with Original Context --- 
+    # --- PROMPT FOR EXPLANATION --- 
     prompt = textwrap.dedent(f"""
-    You are a helpful AI assistant explaining a generated tech stack diagram.
-    The diagram was generated based on the following user request:
-    \"""{original_prompt}"\""
+    You are an expert technical writer. Given the following tech stack graph and the original user prompt for its creation, generate a comprehensive explanation in markdown format.
 
-    Here is the generated tech stack graph data (in React Flow JSON format):
-    ```json
-    {graph_str}
-    ```
+    Tech Stack Graph: {graph_str}
 
-    Explain the choices made for the components in this tech stack **in the context of the original user request**.
-    Describe why each component (node) might have been chosen and how they connect (edges) to fulfill the user's goal.
-    Focus on the relationships and the overall architecture suggested by the graph.
-    Keep the explanation concise and easy to understand.
-    Do not output JSON, only the textual explanation.
+    Original User Prompt: {original_prompt}
+
+    Your explanation should:
+    1. Start with a concise summary of the overall project or system being described by the graph.
+    2. Detail each major component (node), explaining its role and key technologies (from `details`).
+    3. Describe the relationships and data flows (edges) between components.
+    4. Discuss how the architecture addresses the original user prompt, if applicable.
+    5. Conclude with potential next steps or considerations for this architecture.
+    6. Use clear, professional, and accessible language.
+    7. Format using Markdown (e.g., # Headings, - Lists, **Bold**, `code`).
     """)
-    # --- End Updated Prompt ---
+    # --- END PROMPT --- 
 
     try:
-        print(f"Sending prompt to Gemini for graph explanation (with context: {original_prompt[:50]}...)") # Log context
+        print(f"Sending prompt to Gemini for graph explanation: {original_prompt[:50]}...")
         response = gemini_model.generate_content(prompt)
 
-        # Handle potential safety blocks or empty responses
         if not response.parts:
             feedback = response.prompt_feedback
             print(f"Warning: Gemini explanation response blocked or empty. Feedback: {feedback}")
-            return "AI explanation was blocked or empty."
+            return f"# Error: AI explanation response was blocked or empty. Feedback: {feedback}"
 
         explanation_text = response.text
         print("Received explanation text from Gemini.")
         return explanation_text
-        
+
     except Exception as e:
         print(f"Error during Gemini call for explanation: {e}")
-        return f"Error generating explanation: {e}"
+        return f"# Error: An exception occurred during explanation generation: {e}"
 
 # --- API Endpoints ---
 
 @app.route('/api/generate-graph', methods=['POST'])
 def api_generate_graph():
-    """Endpoint to generate or modify a tech stack graph.
-       If 'existingGraph' is provided, modifies it based on 'prompt'.
-       Otherwise, generates a new graph from scratch based on 'prompt'.
-    """
     if not request.is_json:
         return jsonify({"error": "Request must be JSON"}), 400
-    
+
     data = request.get_json()
-    prompt = data.get('prompt') # Renamed 'description' to 'prompt' for consistency
-    existing_graph = data.get('existingGraph') # Check for existing graph data
+    description = data.get('description', '')
+    existing_graph = data.get('existingGraph')
 
-    if not prompt:
-        return jsonify({"error": "Missing 'prompt' in request body"}), 400
+    if not description and not existing_graph:
+        return jsonify({"error": "Either 'description' or 'existingGraph' must be provided."}), 400
 
-    if not gemini_model:
-         return jsonify({"error": "Gemini API not configured on server."}), 503
-
-    try:
-        generated_data = None
-        if existing_graph and isinstance(existing_graph.get('nodes'), list) and len(existing_graph['nodes']) > 0:
-            # If existing graph is valid and not empty, try modifying it
-            print("Calling modify_or_replace_graph...")
-            generated_data = modify_or_replace_graph(existing_graph, prompt)
-        else:
-            # Otherwise, generate from scratch
-            print("Calling generate_graph_from_scratch...")
-            generated_data = generate_graph_from_scratch(prompt)
+    if existing_graph: # User wants to modify or replace existing graph
+        # Ensure existing_graph is parsed correctly if it came as a string
+        if isinstance(existing_graph, str):
+            try:
+                existing_graph = json.loads(existing_graph)
+            except json.JSONDecodeError:
+                return jsonify({"error": "Invalid JSON for existingGraph"}), 400
         
-        # Check if mock data was returned 
-        is_mocked = generated_data.pop('mocked', False) 
-        if is_mocked:
-            print("Returning mocked graph data due to generation/modification failure.")
-            # generated_data['is_mocked'] = True # Optionally add flag back
-            
-        return jsonify(generated_data), 200
-        
-    except Exception as e:
-        print(f"Unexpected error in /api/generate-graph: {e}")
-        traceback.print_exc() # Log the full stack trace
-        return jsonify({"error": "An internal server error occurred during graph generation."}), 500
+        # Call the modification/replacement function
+        generated_graph_data = modify_or_replace_graph(existing_graph, description)
+        print("Graph modified or replaced.")
+    else: # User wants to generate from scratch
+        generated_graph_data = generate_graph_from_scratch(description)
+        print("New graph generated from scratch.")
+
+    return jsonify(generated_graph_data)
 
 @app.route('/api/explain-graph', methods=['POST'])
 def api_explain_graph():
-    """Endpoint to generate an explanation for a given tech stack graph JSON,
-       using the original user prompt for context.
-    """
     if not request.is_json:
         return jsonify({"error": "Request must be JSON"}), 400
-    
     data = request.get_json()
     graph_data = data.get('graphData')
-    original_prompt = data.get('originalPrompt')
-
-    if not graph_data or 'nodes' not in graph_data or 'edges' not in graph_data:
-        return jsonify({"error": "Invalid or missing graph data in request body"}), 400
-    if not original_prompt:
-         return jsonify({"error": "Missing originalPrompt in request body"}), 400
-
-    if not gemini_model:
-         return jsonify({"error": "Gemini API not configured on server."}), 503
-
-    try:
-        # Pass both graph and original prompt to the helper
-        explanation = generate_graph_explanation(graph_data, original_prompt)
-        
-        # Check for errors returned within the data (handled internally now)
-        # if "error" in explanation: 
-        #     print(f"Explanation generation failed: {explanation['error']}")
-        #     return jsonify({"error": f"Failed to generate explanation: {explanation['error']}"}), 500
-            
-        return jsonify({"explanation": explanation}), 200
-    except Exception as e:
-        print(f"Unexpected error in /api/explain-graph: {e}")
-        return jsonify({"error": "An internal server error occurred during explanation."}), 500
-
-# --- Add the new endpoint --- 
-@app.route('/api/generate-builder-prompt', methods=['POST'])
-def api_generate_builder_prompt():
-    """Endpoint to generate the detailed Markdown prompt for an LLM builder agent."""
-    if not request.is_json:
-        return jsonify({"error": "Request must be JSON"}), 400
-
-    data = request.get_json()
-    graph_data = data.get('graphData')
-    user_context = data.get('userContext', "") # Default to empty string if missing
+    original_prompt = data.get('originalPrompt', 'No specific prompt was given.')
 
     if not graph_data:
-        return jsonify({"error": "Missing 'graphData' in request body"}), 400
-    # Validate graph_data structure (basic check)
-    if not isinstance(graph_data.get('nodes'), list) or not isinstance(graph_data.get('edges'), list):
-         return jsonify({"error": "Invalid 'graphData' structure: 'nodes' and 'edges' must be lists."}), 400
+        return jsonify({"error": "Missing graphData"}), 400
 
-    try:
-        # --- Use the imported builder function --- 
-        markdown_prompt = generate_llm_builder_prompt(graph_data, user_context)
-        # ---------------------------------------
+    explanation_markdown = generate_graph_explanation(graph_data, original_prompt)
 
-        # Check if the generator itself returned an error string
-        if markdown_prompt.startswith("# Error:"):
-            print(f"LLM Builder prompt generation failed: {markdown_prompt}")
-            # Return a specific error code, e.g., 400 for bad input data
-            return jsonify({"error": markdown_prompt}), 400 # Or 500 if it's an internal generator issue
+    return jsonify({"markdownExplanation": explanation_markdown})
 
-        # Return the generated prompt successfully
-        return jsonify({"markdownPrompt": markdown_prompt}), 200
-    except Exception as e:
-        print(f"Unexpected error in /api/generate-builder-prompt: {e}")
-        traceback.print_exc() # Log the full stack trace
-        return jsonify({"error": "An internal server error occurred while generating the builder prompt."}), 500
-# --- End of new endpoint ---
+@app.route('/api/build-prompt', methods=['POST'])
+def build_prompt():
+    if not request.is_json:
+        return jsonify({"error": "Request must be JSON"}), 400
+    data = request.get_json()
+    graph_data = data.get('graphData')
+    user_context = data.get('userContext', '')
 
-# --- Add the new endpoint for repo script generation --- 
+    if not graph_data:
+        return jsonify({"error": "Missing graphData"}), 400
+
+    # Use the imported function directly
+    markdown_prompt = generate_llm_builder_prompt(graph_data, user_context)
+
+    return jsonify({"markdownPrompt": markdown_prompt})
+
 @app.route('/api/generate-repo-script', methods=['POST'])
-def api_generate_repo_script():
-    """Endpoint to generate a Bash script for creating repo structure."""
+def generate_repo_script():
     if not request.is_json:
         return jsonify({"error": "Request must be JSON"}), 400
-
     data = request.get_json()
     graph_data = data.get('graphData')
-    user_context = data.get('userContext', "") # Default to empty string if missing
+    user_context = data.get('userContext', '')
 
     if not graph_data:
-        return jsonify({"error": "Missing 'graphData' in request body"}), 400
-    # Basic validation
-    if not isinstance(graph_data.get('nodes'), list):
-        return jsonify({"error": "Invalid 'graphData' structure: 'nodes' must be a list."}), 400
+        return jsonify({"error": "Missing graphData"}), 400
 
-    # Ensure the Gemini model is available
-    if not gemini_model:
-        return jsonify({"error": "Gemini API model not configured on server."}), 503
+    # Use the imported function directly and pass the gemini_model
+    bash_script = generate_repo_builder_script_with_gemini(graph_data, user_context, gemini_model)
 
-    try:
-        # --- Call the imported repo builder function --- 
-        bash_script = generate_repo_builder_script_with_gemini(
-            graph_data,
-            user_context,
-            gemini_model # Pass the initialized model
-        )
-        # --------------------------------------------
-
-        # Check if the generator returned an error string
-        if bash_script.startswith("# Error:") or bash_script.startswith("# Warning:"):
-            print(f"Repo script generation failed or has warnings: {bash_script}")
-            # Return a specific error code, e.g., 400 or 500 depending on error type
-            return jsonify({"error": bash_script}), 500 # Internal server error seems appropriate
-
-        # Return the generated script successfully
-        # We send it as plain text, but jsonify works for simple strings too
-        # For clarity, we could use Flask's Response object for text/plain
-        # from flask import Response
-        # return Response(bash_script, mimetype='text/plain')
-        return jsonify({"bashScript": bash_script}), 200 # Keep it JSON for consistency
-
-    except Exception as e:
-        print(f"Unexpected error in /api/generate-repo-script: {e}")
-        traceback.print_exc() # Log the full stack trace
-        return jsonify({"error": "An internal server error occurred while generating the repository script."}), 500
-# --- End of repo script endpoint ---
+    return jsonify({"bashScript": bash_script})
 
 @app.route('/api/multi-agent-generate', methods=['POST'])
 def multi_agent_generate():
     if not request.is_json:
         return jsonify({"error": "Request must be JSON"}), 400
     data = request.get_json()
-    result, status = multi_agent_generate_backend(data, gemini_model)
+
+    # NEW: Inject GitHub access token and owner from session if available
+    github_access_token = session.get('github_access_token')
+    if github_access_token:
+        data['githubAccessToken'] = github_access_token
+    
+    # If the frontend sent githubOwner (e.g., from githubUser.login),
+    # we will use that. Otherwise, if you stored it in session during OAuth,
+    # you could retrieve it here as well.
+    # For now, assuming frontend sends it if it has it from `githubUser.login`.
+    
+    # Ensure gemini_model is available
+    gemini_model = genai.GenerativeModel(
+        'gemini-1.5-flash',
+        safety_settings={
+            HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+            HarmCategory.HARMS_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+            HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+            HarmCategory.HARMS_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+        },
+        api_key=GEMINI_API_KEY
+    )
+
+    # NEW: Call the async multi_agent_generate_backend function
+    result, status = asyncio.run(multi_agent_generate_backend(data, gemini_model))
     return jsonify(result), status
 
 @app.route('/api/test-gemini', methods=['GET'])
 def test_gemini_api():
-    """Test endpoint to verify Gemini API key is working."""
     if not gemini_model:
-        return jsonify({
-            "success": False,
-            "error": "Gemini API not configured on server.",
-            "message": "Check if API key is properly set up."
-        }), 503
-
+        return jsonify({"error": "Gemini model not configured"}), 500
     try:
         # Simple test prompt
-        test_prompt = "Hello! Please respond with 'API test successful' if you can see this message."
-        response = gemini_model.generate_content(test_prompt)
-        
-        if not response.parts:
-            return jsonify({
-                "success": False,
-                "error": "No response received from Gemini API",
-                "message": "API might be blocked or rate limited."
-            }), 500
-        
-        response_text = response.text.strip()
-        
-        return jsonify({
-            "success": True,
-            "message": "Gemini API is working correctly!",
-            "response": response_text,
-            "model": gemini_model.model_name
-        }), 200
-        
+        response = gemini_model.generate_content("Say hi.")
+        return jsonify({"status": "success", "message": response.text})
     except Exception as e:
-        return jsonify({
-            "success": False,
-            "error": str(e),
-            "message": "Gemini API test failed. Check your API key and network connection."
-        }), 500
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/')
 def health_check():
-    """Basic health check endpoint."""
     return jsonify({"status": "ok", "message": "Flask backend is running."})
 
+# GitHub OAuth Endpoints
+@app.route('/api/github/login')
+def github_login():
+    if not GITHUB_CLIENT_ID:
+        return jsonify({"message": "GitHub integration not configured"}), 500
+    
+    # Generate a random string for state parameter to prevent CSRF
+    state = secrets.token_urlsafe(16)
+    session['github_oauth_state'] = state
+    # print(f"DEBUG: Stored GitHub OAuth state: {state}")
+
+    # The scope 'repo' grants access to create and manage repositories
+    # You might want to refine this based on your exact needs.
+    github_auth_url = f"https://github.com/login/oauth/authorize?client_id={GITHUB_CLIENT_ID}&scope=repo&state={state}"
+    return redirect(github_auth_url)
+
+@app.route('/api/github/callback')
+def github_callback():
+    code = request.args.get('code')
+    state = request.args.get('state') # NEW: Get state from callback
+    # print(f"DEBUG: Received state from GitHub callback: {state}")
+    # print(f"DEBUG: Stored state in session: {session.get('github_oauth_state')}")
+
+    # NEW: Verify state parameter
+    if not state or state != session.get('github_oauth_state'):
+        # Invalidate the state to prevent replay attacks
+        session.pop('github_oauth_state', None)
+        return jsonify({"message": "OAuth state parameter missing or mismatched", "error": "invalid_request", "error_code": "bad_oauth_callback"}), 400
+    
+    # Clean up the state from session after verification
+    session.pop('github_oauth_state', None)
+
+    if not code:
+        return jsonify({"message": "Authorization code not received"}), 400
+
+    if not GITHUB_CLIENT_ID or not GITHUB_CLIENT_SECRET:
+        return jsonify({"message": "GitHub integration not configured"}), 500
+
+    # Exchange code for access token
+    token_url = "https://github.com/login/oauth/access_token"
+    headers = {'Accept': 'application/json'}
+    payload = {
+        'client_id': GITHUB_CLIENT_ID,
+        'client_secret': GITHUB_CLIENT_SECRET,
+        'code': code
+    }
+    try:
+        response = requests.post(token_url, headers=headers, json=payload)
+        response.raise_for_status() # Raise an HTTPError for bad responses (4xx or 5xx)
+        access_token_data = response.json()
+        access_token = access_token_data.get('access_token')
+
+        if not access_token:
+            return jsonify({"message": "Failed to get access token", "details": access_token_data}), 500
+
+        session['github_access_token'] = access_token
+        print(f"DEBUG: github_callback - Stored access token in session: {access_token[:5]}...")
+        print(f"DEBUG: github_callback - Full session after storing token: {session}")
+        
+        # Redirect to the frontend application's main page or a success page
+        # You might want to pass a success/failure parameter here
+        return redirect("http://localhost:8080") # Redirect to your frontend URL
+    except requests.exceptions.RequestException as e:
+        print(f"Error exchanging code for token: {e}")
+        return jsonify({"message": "Error during GitHub OAuth callback", "details": str(e)}), 500
+
+@app.route('/api/github/user')
+def github_user():
+    access_token = session.get('github_access_token')
+    print(f"DEBUG: github_user endpoint - access_token from session: {access_token}")
+    if not access_token:
+        return jsonify({"message": "Not authenticated with GitHub"}), 401
+
+    headers = {
+        'Authorization': f'token {access_token}',
+        'Accept': 'application/vnd.github.v3+json'
+    }
+    try:
+        response = requests.get("https://api.github.com/user", headers=headers)
+        response.raise_for_status()
+        user_data = response.json()
+        return jsonify(user_data)
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching GitHub user data: {e}")
+        return jsonify({"message": "Failed to fetch GitHub user data", "details": str(e)}), 500
+
+@app.route('/api/github/create_repository', methods=['POST'])
+def create_github_repository():
+    print(f"DEBUG: create_github_repository endpoint - Current session: {session}")
+    access_token = session.get('github_access_token')
+    print(f"DEBUG: create_github_repository endpoint - access_token from session: {access_token}")
+    if not access_token:
+        return jsonify({"message": "Not authenticated with GitHub"}), 401
+
+    data = request.json
+    repo_name = data.get('name')
+    description = data.get('description', 'Tech stack graph generated by Stackwise')
+    private = data.get('private', False)
+
+    if not repo_name:
+        return jsonify({"message": "Repository name is required"}), 400
+
+    headers = {
+        'Authorization': f'token {access_token}',
+        'Accept': 'application/vnd.github.v3+json'
+    }
+    payload = {
+        'name': repo_name,
+        'description': description,
+        'private': private,
+        'auto_init': True # Initializes with a README.md
+    }
+    try:
+        response = requests.post("https://api.github.com/user/repos", headers=headers, json=payload)
+        response.raise_for_status()
+        repo_data = response.json()
+        return jsonify(repo_data)
+    except requests.exceptions.RequestException as e:
+        print(f"Error creating GitHub repository: {e}")
+        # More detailed error for common cases
+        if response.status_code == 422 and "name already exists" in response.text.lower():
+            return jsonify({"message": "Repository with this name already exists.", "details": response.json()}), 409 # Conflict
+        return jsonify({"message": "Failed to create repository", "details": str(e), "response": response.text}), 500
+
 if __name__ == '__main__':
-    app.run(debug=True, port=5001)
+    app.run(host='localhost', port=5001, debug=True)

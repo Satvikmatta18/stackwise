@@ -1,12 +1,14 @@
-
 import React from 'react';
 import { Button } from '@/components/ui/button';
+import { Node, Edge } from '@xyflow/react';
 
 interface VersionHistoryItemProps {
   version: {
     id: string;
     timestamp: string;
     description: string;
+    nodes: Node[];
+    edges: Edge[];
   };
   onRestore: (id: string) => void;
   isActive: boolean;

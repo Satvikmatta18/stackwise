@@ -47,6 +47,15 @@ interface VersionHistoryEntry {
   edges: Edge[];
 }
 
+interface GraphFromSupabase {
+  id: string;
+  created_at: string;
+  user_id: string;
+  name: string;
+  data: { nodes: Node[]; edges: Edge[] };
+  updated_at: string;
+}
+
 // Define node types used in the flow
 const nodeTypes = {
   techNode: TechNode,
@@ -69,6 +78,8 @@ const Index = () => {
   const [initialLayoutApplied, setInitialLayoutApplied] = useState(false); // Track initial layout
   const panelGroupRef = useRef<ImperativePanelGroupHandle>(null);
   const [session, setSession] = useState<any>(null); // NEW STATE FOR SUPABASE SESSION
+  const [supaGraphs, setSupaGraphs] = useState<GraphFromSupabase[]>([]); // NEW STATE FOR SUPABASE GRAPHS
+  const [githubUser, setGithubUser] = useState<any>(null); // NEW STATE FOR GITHUB USER
 
   // Load initial state from localStorage or set default
   const loadInitialHistory = (): VersionHistoryEntry[] => {
@@ -141,94 +152,96 @@ const Index = () => {
     };
   }, []); // Dependencies include initialLoadComplete, but session update is independent
 
+  // NEW EFFECT: Fetch Supabase graphs when session changes
+  useEffect(() => {
+    const fetchSupabaseGraphs = async () => {
+      if (session) {
+        try {
+          const { data, error } = await supabase
+            .from('graphs')
+            .select('id, created_at, user_id, name, data, updated_at')
+            .eq('user_id', session.user.id)
+            .order('created_at', { ascending: false });
+
+          if (error) throw error;
+          setSupaGraphs(data as GraphFromSupabase[]);
+        } catch (error: any) {
+          console.error("Error fetching Supabase graphs:", error.message);
+          toast.error("Failed to load cloud graphs.", { description: error.message, duration: 5000 });
+          setSupaGraphs([]); // Clear any old graphs on error
+        }
+      } else {
+        setSupaGraphs([]); // Clear Supabase graphs when logged out
+      }
+    };
+    fetchSupabaseGraphs();
+  }, [session]);
+
+  // NEW EFFECT: Fetch GitHub user data if session is active
+  useEffect(() => {
+    const fetchGithubUser = async () => {
+      try {
+        const response = await fetch(`${apiUrl}/api/github/user`, {
+          credentials: 'include' // Ensure cookies are sent for authentication
+        });
+        if (response.ok) {
+          const userData = await response.json();
+          setGithubUser(userData);
+        } else if (response.status === 401) {
+          setGithubUser(null); // Not authenticated with GitHub
+        } else {
+          console.error("Failed to fetch GitHub user:", await response.text());
+          setGithubUser(null);
+        }
+      } catch (error) {
+        console.error("Error fetching GitHub user:", error);
+        setGithubUser(null);
+      }
+    };
+
+    // Only try to fetch GitHub user if a Supabase session exists, suggesting potential GitHub auth
+    if (session) {
+      fetchGithubUser();
+    } else {
+      setGithubUser(null); // Clear GitHub user if Supabase session ends
+    }
+  }, [session]); // Re-run when Supabase session changes
+
   // Apply initial layout once nodes/edges/instance are ready and layout hasn't been applied yet
   useEffect(() => {
-    if (initialLoadComplete && reactFlowInstance && nodes.length > 0 && !initialLayoutApplied) {
+    if (initialLoadComplete && reactFlowInstance && !initialLayoutApplied && (nodes.length > 0 || edges.length > 0)) {
       handleAutoLayout();
-      setInitialLayoutApplied(true); // Mark layout as applied
-    }
-    // Reset flag if nodes/edges change significantly (e.g., after AI generation or version restore)
-    // This will trigger re-layout on next render
-    if (nodes.length === 0) {
-      setInitialLayoutApplied(false);
+      setInitialLayoutApplied(true);
     }
   }, [nodes, edges, reactFlowInstance, initialLoadComplete, initialLayoutApplied, handleAutoLayout]);
 
   // Save history to localStorage whenever it changes (after initial load)
   useEffect(() => {
-    if (initialLoadComplete && typeof window !== 'undefined') {
-      // Find the currently active version in history and update its nodes/edges
-      const updatedHistory = versionHistory.map(version => {
-        if (version.id === activeVersionId) {
-          // Ensure we're creating new objects/arrays to avoid mutation issues
-          return { ...version, nodes: [...nodes], edges: [...edges] }; 
-        }
-        return version;
-      });
-
-      // Prepare the stringified history once
-      const historyJson = JSON.stringify(updatedHistory);
-      const currentStorageJson = localStorage.getItem(LOCAL_STORAGE_KEY);
-
-      // Check if the state representation differs from the stored one
-      if (historyJson !== currentStorageJson) {
-         try {
-             localStorage.setItem(LOCAL_STORAGE_KEY, historyJson);
-             // If the state *itself* needed updating (rare case, defensive)
-             if(JSON.stringify(updatedHistory) !== JSON.stringify(versionHistory)) {
-                 setVersionHistory(updatedHistory); 
-             }
-         } catch (storageError) {
-             console.warn("LocalStorage Warning (History Sync Effect): Failed to save graph history. Data might be lost on refresh.", storageError);
-             // Optionally show a less intrusive warning, or none at all
-             // toast({ title: "Storage Warning", description: "Could not sync history to storage.", variant: "outline", duration: 3000 });
-             // Importantly, DO NOT THROW - allow UI updates to proceed
-             
-             // Still update the state if it changed, even if storage failed
-             if(JSON.stringify(updatedHistory) !== JSON.stringify(versionHistory)) {
-                 setVersionHistory(updatedHistory); 
-             }
-         }
-      }
+    // Only save to local storage if no session exists
+    if (initialLoadComplete && !session) {
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(versionHistory));
     }
-  // NOTE: Reduced dependencies to avoid potentially excessive writes.
-  // Re-evaluate if active version state *must* be saved on every node/edge change.
-  // For now, focus on saving when the version *itself* changes or history is explicitly added.
-  // }, [nodes, edges, activeVersionId, versionHistory, initialLoadComplete]); 
-  }, [activeVersionId, versionHistory, initialLoadComplete]); // Try saving primarily when active version changes or history array changes
+  }, [activeVersionId, versionHistory, initialLoadComplete, session]); // Add session to dependencies
 
   // Get current active version data
   const getCurrentVersionData = (): VersionHistoryEntry => {
+    // This function might need to be re-evaluated or split if we load from Supabase
     return versionHistory.find(v => v.id === activeVersionId) || versionHistory[0];
   };
 
   // Handle node drag from palette
   const onDragStart = (event: React.DragEvent, nodeType: {type: string, label: string}) => {
-    event.dataTransfer.setData('application/reactflow/type', nodeType.type);
-    event.dataTransfer.setData('application/reactflow/label', nodeType.label);
+    event.dataTransfer.setData('application/reactflow', JSON.stringify(nodeType));
     event.dataTransfer.effectAllowed = 'move';
   };
 
   // React Flow Handlers
   const onConnect = useCallback(
     (params: Connection) => {
-      // --- Prevent Self-Edges --- 
-      if (params.source === params.target) {
-        console.warn("Attempted to create self-edge, disallowed.");
-        toast.warning("Cannot connect a node to itself.", { duration: 3000 });
-        return; // Do not add the edge
-      }
-      // --- End Prevent Self-Edges ---
-      
-      const newEdge = {
-        ...params,
-        type: 'default', 
-        animated: false,
-        style: { stroke: '#000000', strokeWidth: 1.5 },
-      };
-      setEdges((eds) => addEdge(newEdge, eds));
+      setEdges((eds) => addEdge(params, eds));
+      toast.success("Edge created!", { duration: 1500 });
     },
-    [setEdges, toast] // Added toast to dependency array
+    [setEdges, toast]
   );
 
   const onDragOver = useCallback((event: React.DragEvent) => {
@@ -239,70 +252,71 @@ const Index = () => {
   const onDrop = useCallback(
     (event: React.DragEvent) => {
       event.preventDefault();
-      if (!reactFlowWrapper.current || !reactFlowInstance) return;
 
-      const reactFlowBounds = reactFlowWrapper.current.getBoundingClientRect();
-      const type = event.dataTransfer.getData('application/reactflow/type');
-      const label = event.dataTransfer.getData('application/reactflow/label');
+      const reactFlowBounds = reactFlowWrapper.current?.getBoundingClientRect();
+      if (!reactFlowBounds) {
+        toast.error("Error: Could not get flow bounds.");
+        return;
+      }
 
-      if (typeof type === 'undefined' || !type) return;
+      const nodeTypeString = event.dataTransfer.getData('application/reactflow');
+      if (!nodeTypeString) {
+        toast.error("Error: No node data found in drag event.");
+        return;
+      }
 
-      // 1. Calculate correct screen position relative to the flow container
-      const screenPosition = {
-        x: event.clientX,
-        y: event.clientY,
-      };
-      
-      // 2. Convert screen position to flow coordinates
-      const position = reactFlowInstance.screenToFlowPosition(screenPosition);
+      try {
+        const nodeType = JSON.parse(nodeTypeString);
+        const position = reactFlowInstance?.screenToFlowPosition({
+          x: event.clientX,
+          y: event.clientY,
+        });
 
-      // 3. Create the new node using the correctly calculated position
-      const newNode: Node = { 
-        id: `node_${Date.now()}`,
-        type: 'techNode', // Use the correct node type
-        position: position, // Assign the calculated position object correctly
-          data: { 
-          label: label || type,
-          type: type, 
-          details: '', 
-          // Pass handlers directly (ensure these exist)
-            onLabelChange: handleNodeLabelChange,
-            onDelete: handleNodeDelete,
-          onDetailsChange: handleNodeDetailsChange,
-        },
-      };
+        if (!position) {
+          toast.error("Error: Could not project position.");
+          return;
+        }
 
-      setNodes((nds) => nds.concat(newNode));
+        const newNode: Node = {
+          id: `${nodeType.type}_${Date.now()}`,
+          type: nodeType.type,
+          position,
+          data: { label: nodeType.label, details: '' },
+        };
+
+        setNodes((nds) => nds.concat(newNode));
+        toast.success(`${nodeType.label} node added!`, { duration: 2000 });
+
+        // Automatically update the layout after adding a node if desired
+        // handleAutoLayout(); // Re-enable if you want instant layout on drop
+      } catch (error) {
+        console.error("Failed to parse node data on drop:", error);
+        toast.error("Failed to add node: Invalid data.");
+      }
     },
-    // Ensure all dependencies for handlers are included if necessary
-    [reactFlowInstance, setNodes]
+    [reactFlowInstance, nodes, setNodes, toast, onNodesChange] // Add onNodesChange to dependencies if not already there
   );
 
   // Node Data Change Handlers
   const handleNodeLabelChange = useCallback((nodeId: string, newLabel: string) => {
-    setNodes((nds) =>
-      nds.map((node) => {
-        if (node.id === nodeId) {
-          return { ...node, data: { ...node.data, label: newLabel } };
-        }
-        return node;
-      })
+    setNodes((prevNodes) =>
+      prevNodes.map((node) =>
+        node.id === nodeId ? { ...node, data: { ...node.data, label: newLabel } } : node
+      )
     );
   }, [setNodes]);
 
   const handleNodeDelete = useCallback((nodeId: string) => {
-    setNodes((nds) => nds.filter((node) => node.id !== nodeId));
-    setEdges((eds) => eds.filter((edge) => edge.source !== nodeId && edge.target !== nodeId));
+    setNodes((prevNodes) => prevNodes.filter((node) => node.id !== nodeId));
+    setEdges((prevEdges) => prevEdges.filter((edge) => edge.source !== nodeId && edge.target !== nodeId));
+    toast.info("Node deleted.", { duration: 2000 });
   }, [setNodes, setEdges]);
 
-  const handleNodeDetailsChange = useCallback((nodeId: string, details: string) => {
-    setNodes((nds) =>
-      nds.map((node) => {
-        if (node.id === nodeId) {
-          return { ...node, data: { ...node.data, details } };
-        }
-        return node;
-      })
+  const handleNodeDetailsChange = useCallback((nodeId: string, newDetails: string) => {
+    setNodes((prevNodes) =>
+      prevNodes.map((node) =>
+        node.id === nodeId ? { ...node, data: { ...node.data, details: newDetails } } : node
+      )
     );
   }, [setNodes]);
 
@@ -328,7 +342,7 @@ const Index = () => {
 
       toast.loading("Saving graph to cloud...", { id: "saveGraphToast" });
       try {
-        // Use insert for new graphs. For updates, you'd need a mechanism to get the existing graph ID.
+        // For new graphs. For updates, you'd need a mechanism to get the existing graph ID.
         const { data, error } = await supabase
           .from('graphs')
           .insert([graphDataToSave])
@@ -340,6 +354,15 @@ const Index = () => {
 
         console.log("Graph saved to Supabase:", data);
         toast.success("Graph saved to cloud successfully!", { id: "saveGraphToast", duration: 3000 });
+        // After saving, re-fetch graphs to update the list
+        const { data: updatedGraphs, error: fetchError } = await supabase
+          .from('graphs')
+          .select('id, created_at, user_id, name, data, updated_at')
+          .eq('user_id', session.user.id)
+          .order('created_at', { ascending: false });
+        if (!fetchError) {
+          setSupaGraphs(updatedGraphs as GraphFromSupabase[]);
+        }
       } catch (error: any) {
         console.error("Error saving graph to Supabase:", error);
         toast.error("Failed to save graph to cloud.", { id: "saveGraphToast", description: error.message, duration: 5000 });
@@ -372,18 +395,35 @@ const Index = () => {
     }
   };
 
-  const handleRestoreVersion = (versionId: string) => {
-    const version = versionHistory.find(v => v.id === versionId);
-    if (version) {
-      setActiveVersionId(versionId);
-      setNodes([...version.nodes]); // Use spread for new array reference
-      setEdges([...version.edges]); // Use spread for new array reference
-      setInitialLayoutApplied(false); // Allow layout to re-run for the restored version
-      toast.info("Version Restored", { description: `Restored: ${version.description}`, duration: 3000 });
+  // MODIFIED handleRestoreVersion to handle Supabase graphs
+  const handleRestoreVersion = useCallback((versionId: string, isSupabaseGraph: boolean = false) => {
+    let versionToRestore: VersionHistoryEntry | undefined;
+
+    if (isSupabaseGraph) {
+      const supaGraph = supaGraphs.find(g => g.id === versionId);
+      if (supaGraph) {
+        versionToRestore = {
+          id: supaGraph.id,
+          timestamp: new Date(supaGraph.created_at).toLocaleString(),
+          description: supaGraph.name,
+          nodes: supaGraph.data.nodes,
+          edges: supaGraph.data.edges,
+        };
+      }
     } else {
-       toast.error("Error", { description: "Version not found.", duration: 3000 });
+      versionToRestore = versionHistory.find((version) => version.id === versionId);
     }
-  };
+
+    if (versionToRestore) {
+      setNodes(versionToRestore.nodes);
+      setEdges(versionToRestore.edges);
+      setActiveVersionId(versionToRestore.id);
+      setInitialLayoutApplied(false); // Recalculate layout if needed
+      toast.info("Graph restored!", { duration: 2000 });
+    } else {
+      toast.error("Version not found.", { duration: 2000 });
+    }
+  }, [setNodes, setEdges, setActiveVersionId, setInitialLayoutApplied, versionHistory, supaGraphs]);
 
   // Effect to scroll chat down on new message
   useEffect(() => {
@@ -550,14 +590,40 @@ const Index = () => {
             <div className="flex-grow overflow-y-auto p-4 flex flex-col min-h-0">
               <h3 className="text-sm font-medium mb-3 flex-shrink-0">Version History</h3>
                <div className="space-y-1 flex-grow overflow-y-auto">
-              {versionHistory.map((version) => (
-                <VersionHistoryItem
-                  key={version.id}
-                  version={version}
-                  onRestore={handleRestoreVersion}
-                   isActive={version.id === activeVersionId}
-                />
-              ))}
+                 {/* Conditional rendering for version history */}
+                {session ? (
+                  supaGraphs.length > 0 ? (
+                    supaGraphs.map((graph) => (
+                      <VersionHistoryItem
+                        key={graph.id}
+                        version={{
+                          id: graph.id,
+                          timestamp: new Date(graph.created_at).toLocaleString(),
+                          description: graph.name,
+                          nodes: graph.data.nodes,
+                          edges: graph.data.edges,
+                        }}
+                        onRestore={(id) => handleRestoreVersion(id, true)} // Pass true for Supabase graph
+                        isActive={graph.id === activeVersionId}
+                      />
+                    ))
+                  ) : (
+                    <p className="text-muted-foreground text-sm">No cloud graphs found. Save one to see it here!</p>
+                  )
+                ) : (
+                  versionHistory.length > 0 ? (
+                    versionHistory.map((version) => (
+                      <VersionHistoryItem
+                        key={version.id}
+                        version={version}
+                        onRestore={handleRestoreVersion}
+                        isActive={version.id === activeVersionId}
+                      />
+                    ))
+                  ) : (
+                    <p className="text-muted-foreground text-sm">No local history found. Save your graph to create history!</p>
+                  )
+                )}
             </div>
           </div>
         </div>
@@ -583,7 +649,6 @@ const Index = () => {
               {/* Flow Editor takes full space */}
               <div className="flex-grow h-full">
                  {(() => { 
-                   // ... prep nodesWithHandlers ...
                    const nodesWithHandlers = nodes.map((node) => ({
                     ...node,
                     data: {
@@ -609,10 +674,10 @@ const Index = () => {
                          setNodes([]);
                          setEdges([]);
                          setActiveVersionId('initial');
-                         setInitialLayoutApplied(false); // Reset layout flag on manual reset
+                         setInitialLayoutApplied(false); 
                          toast.info("Graph Reset", { description: "Canvas cleared.", duration: 3000 });
                        }}
-                       onAutoLayout={handleAutoLayout} // Pass the handler
+                       onAutoLayout={handleAutoLayout} 
                        onOpenDocs={() => setIsDocsOpen(true)}
                        isSidebarCollapsed={!isSidebarOpen}
                      />
@@ -659,6 +724,7 @@ const Index = () => {
                nodes={nodes}
                edges={edges}
                setChatMessages={setChatMessages}
+               githubUser={githubUser}
              />
            )}
         </Panel>
