@@ -6,13 +6,14 @@ from flask_cors import CORS
 from dotenv import load_dotenv # Keep import
 import google.generativeai as genai
 import traceback # Import traceback for better error logging
+from multi_agent_codegen import multi_agent_generate_backend
 
 # --- Import generator functions ---
 # from prompt_generator import format_prompt_from_data # Keep if still used
 from llm_prompt_builder import generate_llm_builder_prompt # Import the new function
 from repo_builder import generate_repo_builder_script_with_gemini # Import repo builder function
 # ----------------------------------
-
+api_key = "AIzaSyA-IwMGX27O_eKKB9klqbiBbOMgh8WEPDo"
 app = Flask(__name__)
 # Allow requests from frontend (adjust origin if your frontend runs elsewhere)
 # More explicit CORS setup
@@ -42,11 +43,7 @@ def setup_gemini_api():
         # --------------------------------------------------------
 
         # Retrieve the key AFTER the explicit load_dotenv call
-        api_key = os.getenv("GEMINI_API_KEY") 
-        
-        if not api_key:
-            raise ValueError("GEMINI_API_KEY not found in environment variables (check .env and ensure it was loaded)." ) 
-            
+        api_key = "AIzaSyA-IwMGX27O_eKKB9klqbiBbOMgh8WEPDo"
         genai.configure(api_key=api_key)
 
         # Initialize the model exactly as in detail-generator.py
@@ -514,6 +511,52 @@ def api_generate_repo_script():
         traceback.print_exc() # Log the full stack trace
         return jsonify({"error": "An internal server error occurred while generating the repository script."}), 500
 # --- End of repo script endpoint ---
+
+@app.route('/api/multi-agent-generate', methods=['POST'])
+def multi_agent_generate():
+    if not request.is_json:
+        return jsonify({"error": "Request must be JSON"}), 400
+    data = request.get_json()
+    result, status = multi_agent_generate_backend(data, gemini_model)
+    return jsonify(result), status
+
+@app.route('/api/test-gemini', methods=['GET'])
+def test_gemini_api():
+    """Test endpoint to verify Gemini API key is working."""
+    if not gemini_model:
+        return jsonify({
+            "success": False,
+            "error": "Gemini API not configured on server.",
+            "message": "Check if API key is properly set up."
+        }), 503
+
+    try:
+        # Simple test prompt
+        test_prompt = "Hello! Please respond with 'API test successful' if you can see this message."
+        response = gemini_model.generate_content(test_prompt)
+        
+        if not response.parts:
+            return jsonify({
+                "success": False,
+                "error": "No response received from Gemini API",
+                "message": "API might be blocked or rate limited."
+            }), 500
+        
+        response_text = response.text.strip()
+        
+        return jsonify({
+            "success": True,
+            "message": "Gemini API is working correctly!",
+            "response": response_text,
+            "model": gemini_model.model_name
+        }), 200
+        
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "message": "Gemini API test failed. Check your API key and network connection."
+        }), 500
 
 @app.route('/')
 def health_check():

@@ -18,6 +18,7 @@ import NodePalette from '@/components/sidebar/NodePalette';
 import VersionHistoryItem from '@/components/sidebar/VersionHistoryItem';
 import TechStackFlow from '@/components/TechStackFlow';
 import ChatPanel from '@/components/ChatPanel';
+import Docs from './Docs';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { toast } from "@/components/ui/sonner"
@@ -33,7 +34,7 @@ import { MessageCircle, PanelLeftClose, PanelRightClose, X } from 'lucide-react'
 import { calculateLayout } from '@/lib/graphLayout'; // Import the layout function
 
 const LOCAL_STORAGE_KEY = 'techStackGraphHistory';
-const apiUrl = import.meta.env.VITE_API_URL;
+const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001';
 
 
 // Type for version history items
@@ -108,6 +109,7 @@ const Index = () => {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const [isChatPanelCollapsed, setIsChatPanelCollapsed] = useState(false);
+  const [isDocsOpen, setIsDocsOpen] = useState(false);
 
   // Function to apply automatic layout
   const handleAutoLayout = useCallback(() => {
@@ -506,48 +508,57 @@ const Index = () => {
         className="flex-grow" 
         ref={panelGroupRef} 
       > 
-        {/* Main Content Panel (Flow Editor) */}
+        {/* Main Content Panel (Flow Editor or Docs) */}
         <Panel defaultSize={75} minSize={40} className="flex-grow relative"> {/* Occupies flexible space */} 
-          <div className="flex flex-col h-full" ref={reactFlowWrapper}> 
-            {/* Flow Editor takes full space */}
-            <div className="flex-grow h-full">
-               {(() => { 
-                 // ... prep nodesWithHandlers ...
-                 const nodesWithHandlers = nodes.map((node) => ({
-                  ...node,
-                  data: {
-                    ...node.data,
-                    onLabelChange: handleNodeLabelChange,
-                    onDelete: handleNodeDelete,
-                    onDetailsChange: handleNodeDetailsChange,
-                  },
-                 }));
-                 return (
-          <TechStackFlow 
-                     nodes={nodesWithHandlers} 
-                     edges={edges}
-            onNodesChange={onNodesChange}
-            onEdgesChange={onEdgesChange}
-                     onConnect={onConnect}
-                     onInit={(instance: ReactFlowInstance) => setReactFlowInstance(instance)}
-                     onDrop={onDrop}
-                     onDragOver={onDragOver}
-                     nodeTypes={nodeTypes}
-            onSave={handleSave} 
-                     onReset={() => {
-                       setNodes([]);
-                       setEdges([]);
-                       setActiveVersionId('initial');
-                       setInitialLayoutApplied(false); // Reset layout flag on manual reset
-                       toast.info("Graph Reset", { description: "Canvas cleared.", duration: 3000 });
-                     }}
-                     onAutoLayout={handleAutoLayout} // Pass the handler
-                     isSidebarCollapsed={!isSidebarOpen}
-                   />
-                 );
-               })()}
-            </div>
-        </div>
+          {isDocsOpen ? (
+            <Docs 
+              onBack={() => setIsDocsOpen(false)}
+              nodes={nodes}
+              edges={edges}
+            />
+          ) : (
+            <div className="flex flex-col h-full" ref={reactFlowWrapper}> 
+              {/* Flow Editor takes full space */}
+              <div className="flex-grow h-full">
+                 {(() => { 
+                   // ... prep nodesWithHandlers ...
+                   const nodesWithHandlers = nodes.map((node) => ({
+                    ...node,
+                    data: {
+                      ...node.data,
+                      onLabelChange: handleNodeLabelChange,
+                      onDelete: handleNodeDelete,
+                      onDetailsChange: handleNodeDetailsChange,
+                    },
+                   }));
+                   return (
+            <TechStackFlow 
+                       nodes={nodesWithHandlers} 
+                       edges={edges}
+              onNodesChange={onNodesChange}
+              onEdgesChange={onEdgesChange}
+                       onConnect={onConnect}
+                       onInit={(instance: ReactFlowInstance) => setReactFlowInstance(instance)}
+                       onDrop={onDrop}
+                       onDragOver={onDragOver}
+                       nodeTypes={nodeTypes}
+              onSave={handleSave} 
+                       onReset={() => {
+                         setNodes([]);
+                         setEdges([]);
+                         setActiveVersionId('initial');
+                         setInitialLayoutApplied(false); // Reset layout flag on manual reset
+                         toast.info("Graph Reset", { description: "Canvas cleared.", duration: 3000 });
+                       }}
+                       onAutoLayout={handleAutoLayout} // Pass the handler
+                       onOpenDocs={() => setIsDocsOpen(true)}
+                       isSidebarCollapsed={!isSidebarOpen}
+                     />
+                   );
+                 })()}
+              </div>
+          </div>
+          )}
         </Panel>
         {/* --- Expand Sidebar Button (Bottom Left) --- */}
         {!isSidebarOpen && (

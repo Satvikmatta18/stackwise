@@ -2,13 +2,13 @@ import React, { useState, useRef, MutableRefObject, useCallback, useEffect, Disp
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from "@/components/ui/dialog";
-import { Send, User, Bot, Terminal, Loader, PanelRightClose, FileText, FileTerminal, Copy, Download, X } from 'lucide-react';
+import { Send, User, Bot, Terminal, Loader, PanelRightClose, FileText, FileTerminal, Copy, Download, X, Code2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { cn } from '@/lib/utils';
 import { toast } from "@/components/ui/sonner";
 import { Node, Edge } from '@xyflow/react';
 
-const apiUrl = import.meta.env.VITE_API_URL;
+const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001';
 
 
 interface ChatMessage {
@@ -16,7 +16,7 @@ interface ChatMessage {
   sender: 'user' | 'ai' | 'system';
   content: string | object; 
   timestamp: string;
-  type?: 'builder-prompt' | 'repo-script';
+  type?: 'builder-prompt' | 'repo-script' | 'codegen';
   fullContent?: string;
 }
 
@@ -31,11 +31,12 @@ interface ChatPanelProps {
   setChatMessages: Dispatch<SetStateAction<ChatMessage[]>>;
 }
 
-type CommandMode = 'prompt' | 'repo' | null;
+type CommandMode = 'prompt' | 'repo' | 'codegen' | null;
 
 const availableCommands = [
   { id: 'prompt', name: 'Prompt Generation', icon: FileText, description: 'Generate a .txt file' },
   { id: 'repo', name: 'Repository Generation', icon: FileTerminal, description: 'Generate a .sh script' },
+  { id: 'codegen', name: 'Code Generation', icon: Code2, description: 'Generate project code with multi-agent AI' },
 ];
 
 // Utility to trigger file download
@@ -55,6 +56,7 @@ const downloadFile = (content: string, filename: string, mimeType: string) => {
 const getCommandModeDisplayName = (mode: CommandMode) => {
   if (mode === 'prompt') return 'Prompt Gen';
   if (mode === 'repo') return 'Repo Gen';
+  if (mode === 'codegen') return 'Code Gen';
   return null;
 };
 
@@ -77,6 +79,10 @@ const ChatPanel = ({
   const [modalPromptContent, setModalPromptContent] = useState('');
   const [isRepoModalOpen, setIsRepoModalOpen] = useState(false);
   const [modalRepoScriptContent, setModalRepoScriptContent] = useState('');
+  // Add state for codegen modal
+  const [isCodegenModalOpen, setIsCodegenModalOpen] = useState(false);
+  const [modalCodegenPlan, setModalCodegenPlan] = useState<any>(null);
+  const [modalCodegenFiles, setModalCodegenFiles] = useState<any[]>([]);
 
   // Update filtered commands based on input
   useEffect(() => {
@@ -126,12 +132,13 @@ echo "Setting up repository..."
     }
   };
 
-  const handleGenerateFile = async (mode: 'prompt' | 'repo', userPrompt: string) => {
-    const loadingToastId = toast.loading(`Generating ${mode === 'prompt' ? 'builder prompt' : 'repository script'}...`);
-
+  const handleGenerateFile = async (
+    mode: CommandMode,
+    userPrompt: string
+  ) => {
+    const loadingToastId = toast.loading('Generating...', { description: 'Please wait...' });
+    let fileContent = '';
     try {
-      let fileContent: string;
-
       if (mode === 'prompt') {
         // Call backend to generate the builder prompt
         const response = await fetch(`${apiUrl}/api/generate-builder-prompt`, {
@@ -169,7 +176,7 @@ echo "Setting up repository..."
         toast.success('Builder Prompt Generated', { id: loadingToastId, description: `Prompt added to chat. Click to view.` });
         // --- End modal logic ---
 
-      } else { // mode === 'repo'
+      } else if (mode === 'repo') {
         // --- Call backend to generate the repository script --- 
         const response = await fetch(`${apiUrl}/api/generate-repo-script`, {
           method: 'POST',
@@ -205,11 +212,42 @@ echo "Setting up repository..."
         setIsRepoModalOpen(true);
         toast.success('Repository Script Generated', { id: loadingToastId, description: `Script added to chat. Click to view.` });
         // --- End modal logic ---
+      } else if (mode === 'codegen') {
+        // --- Call backend to generate the code project ---
+        const response = await fetch(`${apiUrl}/api/multi-agent-generate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            graphData: { nodes, edges },
+            chatHistory: messages,
+            userContext: userPrompt,
+            saveToDisk: true,
+          }),
+        });
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({ error: 'Failed to parse error response' }));
+          throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+        }
+        const result = await response.json();
+        setModalCodegenPlan(result.plan);
+        setModalCodegenFiles(result.files);
+        setIsCodegenModalOpen(true);
+        toast.success('Code Generation Complete', { id: loadingToastId, description: `Project files generated and saved to server.` });
+        // Add message to chat history
+        const newMessage: ChatMessage = {
+          id: `codegen-msg-${Date.now()}`,
+          sender: 'ai',
+          content: `Generated project code and plan for: "${userPrompt.substring(0, 30)}...". Click to view/copy.`,
+          timestamp: new Date().toISOString(),
+          type: 'codegen',
+          fullContent: '[Project code and plan generated]'
+        };
+        setChatMessages((prev) => [...prev, newMessage]);
+        return;
       }
-
     } catch (error) {
       console.error(`Error generating ${mode} file:`, error);
-      toast.error('Generation Failed', { id: loadingToastId, description: error.message || 'Could not generate file.' }); // Generic failure message
+      toast.error('Generation Failed', { id: loadingToastId, description: error.message || 'Could not generate file.' });
     } finally {
       setCommandMode(null);
       setInputValue('');
@@ -225,6 +263,8 @@ echo "Setting up repository..."
       handleGenerateFile('prompt', trimmedInput);
     } else if (commandMode === 'repo') {
       handleGenerateFile('repo', trimmedInput);
+    } else if (commandMode === 'codegen') {
+      handleGenerateFile('codegen', trimmedInput);
     } else {
       onGenerateGraph(trimmedInput);
       setInputValue('');
@@ -251,6 +291,7 @@ echo "Setting up repository..."
   const getPlaceholderText = () => {
     if (commandMode === 'prompt') return 'Enter prompt for .txt file generation...';
     if (commandMode === 'repo') return 'Enter prompt for .sh script generation...';
+    if (commandMode === 'codegen') return 'Enter prompt for code generation...';
     return 'Describe your project or type / for commands...';
   };
 
@@ -303,10 +344,15 @@ echo "Setting up repository..."
           const isThinking = msg.sender === 'ai' && msg.content === 'Thinking...';
           const isBuilderPrompt = msg.type === 'builder-prompt';
           const isRepoScript = msg.type === 'repo-script';
+          const isCodegen = msg.type === 'codegen';
 
           const handleClick = () => {
             if (isBuilderPrompt) openPromptModal(msg.fullContent);
             if (isRepoScript) openRepoModal(msg.fullContent);
+            if (isCodegen) {
+              setModalCodegenPlan(msg.fullContent);
+              setIsCodegenModalOpen(true);
+            }
           };
 
           return (
@@ -318,37 +364,40 @@ echo "Setting up repository..."
               )}
             >
               <div 
-                onClick={isBuilderPrompt || isRepoScript ? handleClick : undefined}
+                onClick={isBuilderPrompt || isRepoScript || isCodegen ? handleClick : undefined}
                 className={cn(
                   "p-3 rounded-lg max-w-[80%] flex items-start gap-2",
                   msg.sender === 'user' && 'bg-primary text-primary-foreground',
-                  msg.sender === 'ai' && !isThinking && !isBuilderPrompt && !isRepoScript && 'bg-muted',
+                  msg.sender === 'ai' && !isThinking && !isBuilderPrompt && !isRepoScript && !isCodegen && 'bg-muted',
                   msg.sender === 'ai' && isThinking && 'bg-muted/50 text-muted-foreground italic',
                   msg.sender === 'system' && 'bg-secondary text-secondary-foreground text-xs italic w-full text-center',
                   isBuilderPrompt && 'bg-blue-500/10 hover:bg-blue-500/20 cursor-pointer',
-                  isRepoScript && 'bg-teal-500/10 hover:bg-teal-500/20 cursor-pointer'
+                  isRepoScript && 'bg-teal-500/10 hover:bg-teal-500/20 cursor-pointer',
+                  isCodegen && 'bg-purple-500/10 hover:bg-purple-500/20 cursor-pointer'
                 )}
               >
                 {isBuilderPrompt && <FileText className="h-4 w-4 mt-0.5 text-blue-400 flex-shrink-0" />}
                 {isRepoScript && <FileTerminal className="h-4 w-4 mt-0.5 text-teal-400 flex-shrink-0" />}
+                {isCodegen && <Code2 className="h-4 w-4 mt-0.5 text-purple-400 flex-shrink-0" />}
                 {isThinking && <Loader className="h-4 w-4 animate-spin flex-shrink-0" />}
 
                 {typeof msg.content === 'string' ? (
-                  (msg.sender === 'ai' && !isThinking && !isBuilderPrompt && !isRepoScript) ? (
+                  (msg.sender === 'ai' && !isThinking && !isBuilderPrompt && !isRepoScript && !isCodegen) ? (
                     <div className="prose prose-sm dark:prose-invert max-w-none">
                       <ReactMarkdown components={{ /* Customize rendering if needed */ }}>
                         {msg.content}
                       </ReactMarkdown>
                     </div>
-                  ) : (msg.sender === 'ai' && (isBuilderPrompt || isRepoScript)) ? (
+                  ) : (msg.sender === 'ai' && (isBuilderPrompt || isRepoScript || isCodegen)) ? (
                     // --- Custom rendering for file gen cards ---
                     <div className="flex flex-col">
                       <span className={cn(
                         "font-medium",
                         isBuilderPrompt && "text-blue-400",
-                        isRepoScript && "text-teal-400"
+                        isRepoScript && "text-teal-400",
+                        isCodegen && "text-purple-400"
                       )}>
-                        {isBuilderPrompt ? "Prompt Gen" : "Repo Gen"}
+                        {isBuilderPrompt ? "Prompt Gen" : isRepoScript ? "Repo Gen" : "Code Gen"}
                       </span>
                       <span className="text-xs text-muted-foreground/80 mt-0.5">
                         Click to view/copy.
@@ -501,6 +550,46 @@ echo "Setting up repository..."
              <DialogClose asChild>
                 <Button variant="ghost">Close</Button>
              </DialogClose>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add modal for codegen */}
+      <Dialog open={isCodegenModalOpen} onOpenChange={setIsCodegenModalOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Multi-Agent Code Generation Plan</DialogTitle>
+            <DialogDescription>
+              The following plan and files were generated by the AI. Files are saved to <code>generated_project/</code> on the server.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-96 overflow-y-auto space-y-4">
+            <div>
+              <h4 className="font-semibold mb-2">Plan:</h4>
+              <pre className="bg-muted p-2 rounded text-xs overflow-x-auto">{JSON.stringify(modalCodegenPlan, null, 2)}</pre>
+            </div>
+            <div>
+              <h4 className="font-semibold mb-2">Files:</h4>
+              <ul className="list-disc pl-5 text-xs">
+                {modalCodegenFiles.map((file, idx) => (
+                  <li key={idx} className="mb-1">
+                    <span className="font-mono">{file.path}</span>
+                    <button
+                      className="ml-2 text-blue-600 underline text-xs"
+                      onClick={() => copyToClipboard(file.content)}
+                      title="Copy file content"
+                    >
+                      Copy
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button type="button" variant="secondary">Close</Button>
+            </DialogClose>
           </DialogFooter>
         </DialogContent>
       </Dialog>

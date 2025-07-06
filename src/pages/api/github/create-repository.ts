@@ -7,12 +7,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    const { GITHUB_TOKEN } = process.env;
-    if (!GITHUB_TOKEN) {
-      throw new Error('GitHub token not configured');
-    }
-
-    const octokit = new Octokit({ auth: GITHUB_TOKEN });
+    // GitHub functionality disabled - no token required
+    throw new Error('GitHub repository creation is not enabled');
     const { nodes, edges, metadata } = req.body;
 
     // Create repository

@@ -7,12 +7,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    const { GEMINI_API_KEY } = process.env;
-    if (!GEMINI_API_KEY) {
-      throw new Error('Gemini API key not configured');
-    }
-
-    const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+    const genAI = new GoogleGenerativeAI("AIzaSyA-IwMGX27O_eKKB9klqbiBbOMgh8WEPDo");
     const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
     const { prompt } = req.body;
 

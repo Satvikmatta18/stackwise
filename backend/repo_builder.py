@@ -154,14 +154,10 @@ if __name__ == '__main__':
         script_dir = os.path.dirname(__file__)
         dotenv_path = os.path.join(script_dir, '.env')
         load_dotenv(dotenv_path=dotenv_path, override=True)
-        api_key = os.getenv("GEMINI_API_KEY")
-        if api_key:
-            genai.configure(api_key=api_key)
-            test_model = genai.GenerativeModel('gemini-1.5-flash-latest') 
-            print("Gemini model initialized for testing.")
-        else:
-            test_model = None
-            print("GEMINI_API_KEY not found in .env, cannot initialize model for testing.")
+        api_key = "AIzaSyA-IwMGX27O_eKKB9klqbiBbOMgh8WEPDo"
+        genai.configure(api_key=api_key)
+        test_model = genai.GenerativeModel('gemini-1.5-flash-latest') 
+        print("Gemini model initialized for testing.")
     except Exception as setup_e:
         test_model = None
         print(f"Error initializing Gemini model for testing: {setup_e}")

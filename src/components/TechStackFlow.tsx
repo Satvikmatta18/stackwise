@@ -18,7 +18,7 @@ import {
 import '@xyflow/react/dist/style.css';
 import { Button } from '@/components/ui/button';
 import ResetGraphButton from './ResetGraphButton';
-import { Layout } from 'lucide-react';
+import { Layout, FileText } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface TechStackFlowProps {
@@ -34,6 +34,7 @@ interface TechStackFlowProps {
   onSave: () => void;
   onReset: () => void;
   onAutoLayout: () => void;
+  onOpenDocs: () => void;
   isSidebarCollapsed: boolean;
 }
 
@@ -50,6 +51,7 @@ const TechStackFlow: React.FC<TechStackFlowProps> = ({
   onSave, 
   onReset,
   onAutoLayout,
+  onOpenDocs,
   isSidebarCollapsed
 }) => {
   const handleSave = () => {
@@ -74,6 +76,14 @@ const TechStackFlow: React.FC<TechStackFlowProps> = ({
             size="sm"
           >
             Save Graph
+          </Button>
+          <Button
+            onClick={onOpenDocs}
+            variant="outline"
+            size="sm"
+          >
+            <FileText className="h-4 w-4 mr-1" />
+            Docs
           </Button>
           <ResetGraphButton onReset={onReset} size="sm" />
           <Button
