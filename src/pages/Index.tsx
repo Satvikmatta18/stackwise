@@ -32,6 +32,7 @@ import {
 } from "react-resizable-panels";
 import { MessageCircle, PanelLeftClose, PanelRightClose, X } from 'lucide-react';
 import { calculateLayout } from '@/lib/graphLayout'; // Import the layout function
+import { supabase } from '@/lib/supabaseClient'; // NEW IMPORT
 
 const LOCAL_STORAGE_KEY = 'techStackGraphHistory';
 const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001';
@@ -67,6 +68,7 @@ const Index = () => {
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null);
   const [initialLayoutApplied, setInitialLayoutApplied] = useState(false); // Track initial layout
   const panelGroupRef = useRef<ImperativePanelGroupHandle>(null);
+  const [session, setSession] = useState<any>(null); // NEW STATE FOR SUPABASE SESSION
 
   // Load initial state from localStorage or set default
   const loadInitialHistory = (): VersionHistoryEntry[] => {
@@ -125,7 +127,19 @@ const Index = () => {
   // Effect to mark initial load as complete after first render
   useEffect(() => {
     setInitialLoadComplete(true);
-  }, []);
+    // NEW AUTH EFFECT - Fetch initial session and set up listener
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+    });
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        setSession(session);
+      }
+    );
+    return () => {
+      authListener.subscription.unsubscribe();
+    };
+  }, []); // Dependencies include initialLoadComplete, but session update is independent
 
   // Apply initial layout once nodes/edges/instance are ready and layout hasn't been applied yet
   useEffect(() => {
@@ -293,21 +307,69 @@ const Index = () => {
   }, [setNodes]);
 
   // Versioning Handlers
-  const handleSave = () => { // No longer needs nodes/edges passed in
-    const newVersion: VersionHistoryEntry = {
-      id: `version_${Date.now()}`,
-      timestamp: new Date().toLocaleString(),
-      description: `Version ${versionHistory.length + 1}`, // Use current length before adding
-      // Clone current nodes/edges from state
-      nodes: nodes.map(n => ({ ...n, data: { ...n.data } })), // Deep copy nodes/data
-      edges: edges.map(e => ({ ...e })), // Shallow copy edges (usually fine)
-    };
+  const handleSave = async () => { // Make it async
+    const currentNodes = reactFlowInstance?.getNodes() || [];
+    const currentEdges = reactFlowInstance?.getEdges() || [];
 
-    const updatedHistory = [...versionHistory, newVersion];
-    setVersionHistory(updatedHistory);
-    setActiveVersionId(newVersion.id); // Activate the new version
-    // No need to setCurrentNodes/Edges here, state already reflects current graph
-    toast.success("Graph Saved", { description: `Version ${updatedHistory.length} saved.`, duration: 3000 });
+    if (session) {
+      // User is logged in, save to Supabase
+      const graphName = prompt('Enter a name for your graph:', `My Tech Stack ${new Date().toLocaleDateString()}`);
+
+      if (graphName === null || graphName.trim() === '') {
+        toast.info("Graph save cancelled.", { duration: 2000 });
+        return;
+      }
+
+      const graphDataToSave = {
+        user_id: session.user.id,
+        name: graphName.trim(),
+        data: { nodes: currentNodes, edges: currentEdges },
+      };
+
+      toast.loading("Saving graph to cloud...", { id: "saveGraphToast" });
+      try {
+        // Use insert for new graphs. For updates, you'd need a mechanism to get the existing graph ID.
+        const { data, error } = await supabase
+          .from('graphs')
+          .insert([graphDataToSave])
+          .select(); // Select the inserted data to confirm
+
+        if (error) {
+          throw error;
+        }
+
+        console.log("Graph saved to Supabase:", data);
+        toast.success("Graph saved to cloud successfully!", { id: "saveGraphToast", duration: 3000 });
+      } catch (error: any) {
+        console.error("Error saving graph to Supabase:", error);
+        toast.error("Failed to save graph to cloud.", { id: "saveGraphToast", description: error.message, duration: 5000 });
+      }
+    } else {
+      // User is NOT logged in, save to local storage (existing logic)
+      const description = prompt('Enter a brief description for this graph version (e.g., "Initial layout", "Added user auth"): ', `Manual Save - ${new Date().toLocaleString()}`);
+
+      if (description === null) {
+        toast.info("Save cancelled.", { duration: 2000 });
+        return;
+      }
+
+      const newVersion: VersionHistoryEntry = {
+        id: `version_${Date.now()}`,
+        timestamp: new Date().toLocaleString(),
+        description: description || `Manual Save - ${new Date().toLocaleString()}`,
+        nodes: currentNodes,
+        edges: currentEdges,
+      };
+
+      setVersionHistory((prev) => {
+        const updated = [...prev, newVersion];
+        // Keep only the last 10 versions for brevity in history
+        return updated.slice(Math.max(0, updated.length - 10));
+      });
+
+      setActiveVersionId(newVersion.id);
+      toast.success("Graph saved to local history!", { duration: 3000 });
+    }
   };
 
   const handleRestoreVersion = (versionId: string) => {

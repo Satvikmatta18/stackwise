@@ -102,49 +102,53 @@ const TechStackFlow: React.FC<TechStackFlowProps> = ({
           <span>stackwise</span>
         </h2>
         <div className="flex gap-2">
+          <Button
+            onClick={handleSave}
+            variant="outline"
+            size="sm"
+          >
+            Save Graph
+          </Button>
+          <ResetGraphButton onReset={onReset} size="sm" />
+          <Button
+            onClick={onAutoLayout}
+            variant="outline"
+            size="sm"
+            title="Auto Layout"
+          >
+            <Layout className="h-4 w-4 mr-1" />
+            Layout
+          </Button>
+          <Button
+            onClick={onOpenDocs}
+            variant="outline"
+            size="sm"
+            title="View Documentation"
+          >
+            <FileText className="h-4 w-4 mr-1" />
+            Docs
+          </Button>
+
           {session ? (
             <>
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => { /* Implement profile/dashboard link here if needed */ }}
+                onClick={() => { /* Placeholder for profile/dashboard navigation */ }}
                 className="flex items-center gap-1"
               >
                 <User2 className="h-4 w-4" />
                 {session.user?.email || 'Profile'}
               </Button>
               <Button
-                onClick={handleSave}
-                variant="outline"
-                size="sm"
-              >
-                Save Graph
-              </Button>
-              <Button
-                onClick={onOpenDocs}
-                variant="outline"
-                size="sm"
-              >
-                <FileText className="h-4 w-4 mr-1" />
-                Docs
-              </Button>
-              <ResetGraphButton onReset={onReset} size="sm" />
-              <Button
-                onClick={onAutoLayout}
-                variant="outline"
-                size="sm"
-                title="Auto Layout"
-              >
-                <Layout className="h-4 w-4 mr-1" />
-                Layout
-              </Button>
-              <Button
                 onClick={handleLogout}
                 variant="outline"
                 size="sm"
                 title="Logout"
+                className="bg-red-500 text-white hover:bg-red-600"
               >
-                <LogOut className="h-4 w-4" />
+                <LogOut className="h-4 w-4 mr-1" />
+                Logout
               </Button>
             </>
           ) : (
@@ -153,6 +157,7 @@ const TechStackFlow: React.FC<TechStackFlowProps> = ({
               variant="outline"
               size="sm"
               title="Login"
+              className="bg-green-500 text-white hover:bg-green-600"
             >
               <LogIn className="h-4 w-4 mr-1" />
               Login
