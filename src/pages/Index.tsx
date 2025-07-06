@@ -279,9 +279,9 @@ const Index = () => {
 
         const newNode: Node = {
           id: `${nodeType.type}_${Date.now()}`,
-          type: nodeType.type,
+          type: 'techNode',
           position,
-          data: { label: nodeType.label, details: '' },
+          data: { label: nodeType.label, type: nodeType.type, details: '' },
         };
 
         setNodes((nds) => nds.concat(newNode));
