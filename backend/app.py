@@ -45,11 +45,11 @@ if not GEMINI_API_KEY:
     raise ValueError("GEMINI_API_KEY not found in environment variables")
 
 # Configure GitHub OAuth
-GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID")
-GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET")
+FLASK_GITHUB_CLIENT_ID = os.getenv("FLASK_GITHUB_CLIENT_ID")
+FLASK_GITHUB_CLIENT_SECRET = os.getenv("FLASK_GITHUB_CLIENT_SECRET")
 
-if not GITHUB_CLIENT_ID or not GITHUB_CLIENT_SECRET:
-    print("WARNING: GitHub Client ID or Secret not found in environment variables. GitHub integration will not work.")
+if not FLASK_GITHUB_CLIENT_ID or not FLASK_GITHUB_CLIENT_SECRET:
+    print("WARNING: Flask GitHub Client ID or Secret not found in environment variables. GitHub integration will not work.")
 
 
 # In-memory storage for simplicity (replace with a database for production)
@@ -476,7 +476,7 @@ def health_check():
 # GitHub OAuth Endpoints
 @app.route('/api/github/login')
 def github_login():
-    if not GITHUB_CLIENT_ID:
+    if not FLASK_GITHUB_CLIENT_ID:
         return jsonify({"message": "GitHub integration not configured"}), 500
     
     # Generate a random string for state parameter to prevent CSRF
@@ -486,7 +486,7 @@ def github_login():
 
     # The scope 'repo' grants access to create and manage repositories
     # You might want to refine this based on your exact needs.
-    github_auth_url = f"https://github.com/login/oauth/authorize?client_id={GITHUB_CLIENT_ID}&scope=repo&state={state}"
+    github_auth_url = f"https://github.com/login/oauth/authorize?client_id={FLASK_GITHUB_CLIENT_ID}&scope=repo&state={state}"
     return redirect(github_auth_url)
 
 @app.route('/api/github/callback')
@@ -508,15 +508,15 @@ def github_callback():
     if not code:
         return jsonify({"message": "Authorization code not received"}), 400
 
-    if not GITHUB_CLIENT_ID or not GITHUB_CLIENT_SECRET:
+    if not FLASK_GITHUB_CLIENT_ID or not FLASK_GITHUB_CLIENT_SECRET:
         return jsonify({"message": "GitHub integration not configured"}), 500
 
     # Exchange code for access token
     token_url = "https://github.com/login/oauth/access_token"
     headers = {'Accept': 'application/json'}
     payload = {
-        'client_id': GITHUB_CLIENT_ID,
-        'client_secret': GITHUB_CLIENT_SECRET,
+        'client_id': FLASK_GITHUB_CLIENT_ID,
+        'client_secret': FLASK_GITHUB_CLIENT_SECRET,
         'code': code
     }
     try:

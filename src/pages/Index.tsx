@@ -536,7 +536,7 @@ const Index = () => {
               throw new Error(errorMsg);
           }
           const explanationData = await explainResponse.json();
-          const explanationText = explanationData.explanation;
+          const explanationText = explanationData.markdownExplanation;
           if (explanationText) {
               setChatMessages(prev => prev.filter(m => m.id !== thinkingMessageId));
               setChatMessages(prev => [...prev, { sender: 'ai', content: explanationText, timestamp: new Date().toISOString() }]);
