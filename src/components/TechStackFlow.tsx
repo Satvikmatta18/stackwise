@@ -23,6 +23,7 @@ import { cn } from '@/lib/utils';
 import { supabase } from '@/lib/supabaseClient';
 import { useNavigate } from 'react-router-dom';
 import { toast } from "@/components/ui/sonner";
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
 
 interface TechStackFlowProps {
   nodes: Node[];
@@ -209,16 +210,27 @@ const TechStackFlow: React.FC<TechStackFlowProps> = ({
             Docs
           </Button>
           {session && (
-            <Button
-              onClick={handleCreateGitHubRepo}
-              variant="outline"
-              size="sm"
-              title={githubUser ? `Create GitHub Repo as ${githubUser.login}` : "Connect to GitHub"}
-              className="bg-slate-700 text-white hover:bg-slate-800"
-            >
-              <Github className="h-4 w-4 mr-1" />
-              {githubUser ? "Create GitHub Repo" : "Connect GitHub"}
-            </Button>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    onClick={handleCreateGitHubRepo}
+                    variant="outline"
+                    size="sm"
+                    title={githubUser ? `Create GitHub Repo as ${githubUser.login}` : "Connect to GitHub"}
+                    className="bg-slate-700 text-white hover:bg-slate-800"
+                  >
+                    <Github className="h-4 w-4 mr-1" />
+                    {githubUser ? "Create GitHub Repo" : "Connect GitHub"}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  {githubUser
+                    ? "Create a new GitHub repository and push your generated code."
+                    : "Connect your GitHub account to enable repository creation and code push. This is separate from login."}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           )}
 
           {session ? (
