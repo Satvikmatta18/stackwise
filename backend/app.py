@@ -22,7 +22,7 @@ from repo_builder import generate_repo_builder_script_with_gemini # Corrected to
 # Load environment variables
 load_dotenv()
 
-api_key = "AIzaSyA-IwMGX27O_eKKB9klqbiBbOMgh8WEPDo"
+api_key = os.getenv("GEMINI_API_KEY")
 app = Flask(__name__)
 app.secret_key = os.urandom(24) # Set a secret key for session management
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax' # Adjust for cross-site cookie handling
@@ -31,13 +31,7 @@ app.config['SESSION_COOKIE_SECURE'] = False # Set to False for HTTP (localhost) 
 # More explicit CORS setup
 frontend_url = "http://localhost:8080" # Explicitly set for consistency with frontend
 
-CORS(
-    app,
-    resources={ r"/api/*": { "origins": [frontend_url, "http://localhost:8080"] } },
-    supports_credentials=True,
-    allow_headers=["Content-Type"],
-    methods=["GET", "POST", "OPTIONS"]
-)
+CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
 
 # Configure Gemini API
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") # Ensure this is loaded from .env
@@ -64,18 +58,14 @@ def setup_gemini_api():
         # --- Explicitly load .env from the script's directory --- 
         script_dir = os.path.dirname(__file__)
         dotenv_path = os.path.join(script_dir, '.env')
-        # print(f"--- DEBUG: Explicitly loading .env from: {dotenv_path} with override=True ---")
         loaded = load_dotenv(dotenv_path=dotenv_path, override=True)
-        # if not loaded:
-            # print(f"--- WARNING: load_dotenv did not find file at: {dotenv_path} ---")
-        # --------------------------------------------------------
-
         # Retrieve the key AFTER the explicit load_dotenv call
-        api_key = "AIzaSyA-IwMGX27O_eKKB9klqbiBbOMgh8WEPDo"
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            raise ValueError("GEMINI_API_KEY not found in environment variables (setup_gemini_api)")
         genai.configure(api_key=api_key)
-
         # Initialize the model exactly as in detail-generator.py
-        model_name = 'gemini-1.5-flash-latest'
+        model_name = 'gemini-2.5-flash'
         model = genai.GenerativeModel(model_name)
         
         print(f"Using {model_name} model") 
@@ -173,13 +163,14 @@ def generate_graph_from_scratch(description):
     }}
 
     Instructions for Generation:
-    1. Include logical components: Frontend, Backend, Databases, APIs/Services, Deployment.
-    2. Assign relevant categorical `type`.
-    3. Position nodes logically (0-1000 units).
-    4. Create edges between related components.
-    5. Use descriptive, unique STRING `id`s.
-    6. **IMPORTANT for `data.details`**: Provide key technical specifications (versions, configurations, sub-components). Avoid generic descriptions. (Examples as before)
-    7. Ensure the final output is ONLY the valid JSON object.
+    1. Ensure that the final output uses at least 5 nodes.
+    2. Include logical components: Frontend, Backend, Databases, APIs/Services, Deployment.
+    3. Assign relevant categorical `type`.
+    4. Position nodes logically (0-1000 units).
+    5. Create edges between related components.
+    6. Use descriptive, unique STRING `id`s.
+    7. **IMPORTANT for `data.details`**: Provide key technical specifications (versions, configurations, sub-components). Avoid generic descriptions. (Examples as before)
+    8. Ensure the final output is ONLY the valid JSON object.
     """)
     # --- END PROMPT --- 
 
@@ -444,7 +435,7 @@ def multi_agent_generate():
     
     # Ensure gemini_model is available
     gemini_model = genai.GenerativeModel(
-        'gemini-1.5-flash',
+        'gemini-2.5-flash',
         safety_settings={
             HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
             HarmCategory.HARMS_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,

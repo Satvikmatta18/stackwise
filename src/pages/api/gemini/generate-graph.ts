@@ -7,7 +7,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    const genAI = new GoogleGenerativeAI("AIzaSyA-IwMGX27O_eKKB9klqbiBbOMgh8WEPDo");
+    const genAI = new GoogleGenerativeAI(os.getenv("GEMINI_API_KEY"));
     const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
     const { prompt } = req.body;
 

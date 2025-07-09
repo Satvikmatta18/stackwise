@@ -453,7 +453,7 @@ const Index = () => {
     let graphError: Error | null = null;
 
     // --- Determine payload based on existing graph --- 
-    let requestBody: any = { prompt };
+    let requestBody: any = { description: prompt };
     if (nodes.length > 0) {
        requestBody.existingGraph = { nodes, edges }; // Add existing graph if nodes exist
        console.log("Sending existing graph for modification...");

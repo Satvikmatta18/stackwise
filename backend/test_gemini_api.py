@@ -32,11 +32,6 @@ def test_gemini_api():
     except Exception as e:
         print(f"⚠️  Error loading .env file: {e}")
     
-    # If no API key from .env, use the hardcoded one from your app.py
-    if not api_key:
-        api_key = "AIzaSyA-IwMGX27O_eKKB9klqbiBbOMgh8WEPDo"
-        print("🔑 Using hardcoded API key from app.py")
-    
     if not api_key:
         print("❌ No API key available!")
         return False
@@ -53,7 +48,7 @@ def test_gemini_api():
     # Test 2: Initialize the model
     try:
         print("\n2️⃣  Testing model initialization...")
-        model = genai.GenerativeModel('gemini-1.5-flash-latest')
+        model = genai.GenerativeModel('gemini-2.5-flash')
         print(f"✅ Model initialized: {model.model_name}")
     except Exception as e:
         print(f"❌ Model initialization failed: {e}")
