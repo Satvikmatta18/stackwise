@@ -173,7 +173,6 @@ echo "Setting up repository..."
             userContext: userPrompt 
           }),
         });
-        console.log(response);
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({ error: 'Failed to parse error response' }));
           throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
@@ -244,6 +243,7 @@ echo "Setting up repository..."
 
         // --- Call backend to generate the code project ---
         const response = await fetch(`${apiUrl}/api/multi-agent-generate`, {
+          credentials: 'include',
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -288,6 +288,7 @@ echo "Setting up repository..."
       }
     } catch (error) {
       console.error(`Error generating ${mode} file:`, error);
+      
       toast.error('Generation Failed', { id: loadingToastId, description: error.message || 'Could not generate file.' });
     } finally {
       setCommandMode(null);

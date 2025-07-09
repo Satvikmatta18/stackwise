@@ -1,53 +1,78 @@
 import React, { useState, useEffect } from "react";
 
 const IndexPage = () => {
-  // State to hold the current background color.
-  // Initialized with a default light color that will be applied on first render.
-  const [backgroundColor, setBackgroundColor] = useState("#f0f0f0"); 
+  const [message, setMessage] = useState("Loading...");
+  const [error, setError] = useState(null);
 
-  // Function to fetch a random color from the FastAPI backend.
-  const fetchRandomColor = async () => {
-    try {
-      // The URL for the FastAPI backend endpoint.
-      // Ensure this matches where your backend service is running.
-      const response = await fetch("http://127.0.0.1:8000/random_color");
-      
-      if (!response.ok) {
-        // If the response is not OK (e.g., 404, 500), throw an error.
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      
-      const data = await response.json();
-      // Update the state with the new color received from the backend.
-      setBackgroundColor(data.color); 
-    } catch (error) {
-      console.error("Error fetching random color:", error);
-      // Optionally, set a fallback color (e.g., red) to indicate an error to the user.
-      setBackgroundColor("#FF0000"); 
-    }
-  };
-
-  // Use useEffect to apply the 'backgroundColor' state to the document body's style.
-  // This effect runs once after the initial render, and then every time 
-  // 'backgroundColor' state changes.
   useEffect(() => {
-    // Directly manipulate the document body's background color.
-    // Global CSS (to be implemented in Step 4) will handle transitions and overall layout.
-    document.body.style.backgroundColor = backgroundColor;
-  }, [backgroundColor]); // Dependency array: effect re-runs if backgroundColor changes.
+    const fetchMessage = async () => {
+      try {
+        // Access the API URL from environment variables
+        const apiUrl = process.env.GATSBY_API_URL;
+        if (!apiUrl) {
+          throw new Error("GATSBY_API_URL is not defined. Please check your .env.development file.");
+        }
+        
+        const response = await fetch(`${apiUrl}/hello`);
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const data = await response.json();
+        setMessage(data.message);
+      } catch (error) {
+        console.error("Failed to fetch message:", error);
+        setError(error.message);
+        setMessage("Failed to load message.");
+      }
+    };
+
+    fetchMessage();
+  }, []);
 
   return (
-    <main>
-      <h1>Random Color Changer</h1>
-      <button onClick={fetchRandomColor}>
-        Change Background Color
-      </button>
-      <p>Current Color: <span style={{ fontWeight: 'bold' }}>{backgroundColor}</span></p>
+    <main style={pageStyles}>
+      <h1 style={headingStyles}>Welcome to your Gatsby App!</h1>
+      <p style={paragraphStyles}>Fetching message from FastAPI backend...</p>
+      {
+        error ? (
+          <p style={errorStyles}>Error: {error}</p>
+        ) : (
+          <p style={messageStyles}>Backend Message: {message}</p>
+        )
+      }
+      <p style={footerStyles}>Make sure your FastAPI backend is running on {process.env.GATSBY_API_URL}</p>
     </main>
   );
 };
 
 export default IndexPage;
 
-// Gatsby's Head API allows you to set document head elements like the page title.
-export const Head = () => <title>Random Color App</title>;
+// Basic styles for the page (can be externalized or improved)
+const pageStyles = {
+  color: "#232129",
+  padding: "96px",
+  fontFamily: "-apple-system, Roboto, sans-serif, serif",
+};
+const headingStyles = {
+  marginTop: 0,
+  marginBottom: 64,
+  maxWidth: 320,
+};
+const paragraphStyles = {
+  marginBottom: 48,
+};
+const messageStyles = {
+  fontSize: "1.5em",
+  fontWeight: "bold",
+  color: "#663399",
+};
+const errorStyles = {
+  fontSize: "1.2em",
+  fontWeight: "bold",
+  color: "#FF0000",
+};
+const footerStyles = {
+  marginTop: "48px",
+  fontSize: "0.8em",
+  color: "#555",
+};

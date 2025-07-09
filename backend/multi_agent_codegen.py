@@ -1,7 +1,7 @@
 import os
 import json
 import textwrap
-from flask import request, jsonify
+from flask import request, jsonify, session
 import requests # NEW: Import requests for HTTP calls to GitHub API
 
 def build_plan_prompt(graph_data, chat_history, user_context):
@@ -261,8 +261,48 @@ async def multi_agent_generate_backend(data, gemini_model):
     push_to_github = data.get('pushToGithub', False)
     github_owner = data.get('githubOwner')
     github_repo_name = data.get('githubRepoName')
-    github_access_token = data.get('githubAccessToken')
     github_commit_message = data.get('githubCommitMessage', 'Generated code from Stackwise')
+
+    # Generate GitHub access token at runtime
+    github_access_token = None
+    
+    # First try to get from data (if passed from frontend)
+    github_access_token = data.get('githubAccessToken', None)
+    print(f"DEBUG: multi_agent_generate_backend - github_access_token from data: {github_access_token}")
+    
+    # If no token in data, try to generate one
+    if not github_access_token:
+        print(f"DEBUG: multi_agent_generate_backend - No token in data, attempting to generate one")
+        
+        # Import required modules for token generation
+        import os
+        from flask import session
+        
+        # Option 1: Try to get from session (if called from Flask context)
+        try:
+            if hasattr(session, 'get'):
+                github_access_token = session.get('github_access_token')
+                print(f"DEBUG: multi_agent_generate_backend - Token from session: {github_access_token}")
+        except Exception as e:
+            print(f"DEBUG: multi_agent_generate_backend - Could not access session: {e}")
+        
+        # Option 2: Use personal access token from environment
+        if not github_access_token:
+            github_access_token = os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN")
+            if github_access_token:
+                print(f"DEBUG: multi_agent_generate_backend - Using personal access token from environment")
+        
+        # Option 3: Use GitHub App installation token (if configured)
+        if not github_access_token:
+            github_access_token = os.getenv("GITHUB_APP_INSTALLATION_TOKEN")
+            if github_access_token:
+                print(f"DEBUG: multi_agent_generate_backend - Using GitHub App installation token")
+        
+        # If still no token, we can't proceed with GitHub operations
+        if not github_access_token:
+            print(f"DEBUG: multi_agent_generate_backend - No GitHub access token available")
+            if push_to_github:
+                return {"error": "GitHub access token required for push operation. Please authenticate with GitHub or provide a token."}, 401
 
     # print(f"DEBUG: multi_agent_generate_backend received: push_to_github={push_to_github}, owner={github_owner}, repo={github_repo_name}")
 
@@ -272,7 +312,12 @@ async def multi_agent_generate_backend(data, gemini_model):
         return {"error": "Gemini API not configured on server."}, 503
 
     github_push_result = {}
+    print("push_to_github", push_to_github)
+    print("github_owner", github_owner)
+    print("github_repo_name", github_repo_name)
+    print("github_access_token", github_access_token)
     if push_to_github and github_owner and github_repo_name and github_access_token:
+        print("WOOF WOOF CREATED A REPO (NOT YET)")
         # print(f"DEBUG: Attempting to create/verify GitHub repository: {github_owner}/{github_repo_name}")
         # Step 1: Create repository if it doesn't exist
         repo_creation_result = await create_github_repository_if_not_exists(
@@ -285,6 +330,7 @@ async def multi_agent_generate_backend(data, gemini_model):
             # For now, we'll continue to generate code, but report the GitHub error
         else:
             # Continue with code generation and then push
+            print("SIKE WE GOOD")
             pass # This pass is just for readability; actual code continues below
 
     # 1. Get the plan
@@ -309,9 +355,10 @@ async def multi_agent_generate_backend(data, gemini_model):
     # 3. Optionally write files to disk or push to GitHub
     if save_to_disk:
         write_files_to_disk(all_files)
-        
+    
     # Optionally, push to GitHub
     if push_to_github and github_owner and github_repo_name and github_access_token and repo_creation_result["success"]:
+        print("PUSHING TO GITHUB")
         push_result = await push_files_to_github(
             github_owner,
             github_repo_name,

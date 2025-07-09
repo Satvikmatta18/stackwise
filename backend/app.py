@@ -24,14 +24,14 @@ load_dotenv()
 
 api_key = os.getenv("GEMINI_API_KEY")
 app = Flask(__name__)
-app.secret_key = os.urandom(24) # Set a secret key for session management
-app.config['SESSION_COOKIE_SAMESITE'] = 'Lax' # Adjust for cross-site cookie handling
-app.config['SESSION_COOKIE_SECURE'] = False # Set to False for HTTP (localhost) development
-# Allow requests from frontend (adjust origin if your frontend runs elsewhere)
-# More explicit CORS setup
-frontend_url = "http://localhost:8080" # Explicitly set for consistency with frontend
+# Use a fixed secret key from environment for session persistence
+app.secret_key = os.getenv("FLASK_SECRET_KEY", "dev_secret_key")  # Use a fixed key for dev if not set
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'  # Adjust for cross-site cookie handling
+app.config['SESSION_COOKIE_SECURE'] = False  # Set to False for HTTP (localhost) development
+frontend_url = "http://localhost:8080"  # Explicitly set for consistency with frontend
 
-CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
+# Set CORS to use the explicit frontend URL for credentials
+CORS(app, resources={r"/api/*": {"origins": frontend_url}}, supports_credentials=True)
 
 # Configure Gemini API
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") # Ensure this is loaded from .env
@@ -425,8 +425,13 @@ def multi_agent_generate():
 
     # NEW: Inject GitHub access token and owner from session if available
     github_access_token = session.get('github_access_token')
+    print(f"DEBUG: multi_agent_generate - Current session: {session}")
+    print(f"DEBUG: multi_agent_generate - github_access_token from session: {github_access_token}")
     if github_access_token:
         data['githubAccessToken'] = github_access_token
+        print(f"DEBUG: multi_agent_generate - Added githubAccessToken to data")
+    else:
+        print(f"DEBUG: multi_agent_generate - No github_access_token found in session")
     
     # If the frontend sent githubOwner (e.g., from githubUser.login),
     # we will use that. Otherwise, if you stored it in session during OAuth,
@@ -521,6 +526,7 @@ def github_callback():
         session['github_access_token'] = access_token
         print(f"DEBUG: github_callback - Stored access token in session: {access_token[:5]}...")
         print(f"DEBUG: github_callback - Full session after storing token: {session}")
+        print(f"DEBUG: github_callback - Session ID: {session.sid if hasattr(session, 'sid') else 'No session ID'}")
         
         # Redirect to the frontend application's main page or a success page
         # You might want to pass a success/failure parameter here
@@ -588,4 +594,5 @@ def create_github_repository():
         return jsonify({"message": "Failed to create repository", "details": str(e), "response": response.text}), 500
 
 if __name__ == '__main__':
-    app.run(host='localhost', port=5001, debug=True)
+    # Disable auto-reload to prevent session loss when generated files are created
+    app.run(host='localhost', port=5001, debug=True, use_reloader=False)

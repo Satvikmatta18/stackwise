@@ -3,20 +3,9 @@
  */
 module.exports = {
   siteMetadata: {
-    title: `Random Color App`,
-    siteUrl: `http://localhost:8000` // Default Gatsby development URL
+    title: `Gatsby Frontend`,
+    siteUrl: `http://localhost:8000`,
+    description: `A simple Gatsby frontend interacting with a FastAPI backend`
   },
-  plugins: [
-    // Standard Gatsby plugins for image optimization (common in new Gatsby projects)
-    `gatsby-plugin-image`,
-    `gatsby-plugin-sharp`,
-    `gatsby-transformer-sharp`,
-    {
-      resolve: `gatsby-source-filesystem`,
-      options: {
-        name: `images`,
-        path: `${__dirname}/src/images` // Standard path for sourcing images
-      }
-    }
-  ]
+  plugins: []
 };

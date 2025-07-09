@@ -26,3 +26,5 @@ backend/.env
 *.njsproj
 *.sln
 *.sw?
+generated_project/
+backend/__pycache__/

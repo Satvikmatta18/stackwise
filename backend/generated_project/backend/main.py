@@ -1,35 +1,30 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-import random
 
 app = FastAPI()
 
 # Configure CORS to allow requests from the frontend application
-# Assuming the frontend (Gatsby) will run on http://localhost:8000 by default.
-# If running on a different port, adjust this origin.
+# Assuming the frontend (React) will run on http://localhost:3000
 origins = [
-    "http://localhost:8000", # Default Gatsby development server port
-    "http://127.0.0.1:8000",
+    "http://localhost:3000",  # Default Create React App port
+    "http://127.0.0.1:3000",
+    # Add any other frontend URLs if needed, e.g., for deployment
 ]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["GET"],
-    allow_headers=["*"],
+    allow_methods=["*"],  # Allow all methods (GET, POST, etc.)
+    allow_headers=["*"],  # Allow all headers
 )
 
-@app.get("/random_color")
-async def get_random_color():
-    """
-    Returns a random hexadecimal color code.
-    """
-    # Generate a random 6-digit hexadecimal number
-    # e.g., 0xRRGGBB, then format it as a string "#RRGGBB"
-    random_hex_color = f"#{random.randint(0, 0xFFFFFF):06x}"
-    return {"color": random_hex_color}
+@app.get("/hello")
+async def read_hello():
+    """Simple GET endpoint that returns a greeting message."""
+    return {"message": "Hello from FastAPI backend!"}
 
-# To run this application, use uvicorn:
-# uvicorn main:app --host 0.0.0.0 --port 8001 --reload
-# (We're choosing port 8001 to avoid conflict with Gatsby's default port 8000)
+# Optional: A root endpoint to verify the API is running
+@app.get("/")
+async def read_root():
+    return {"message": "FastAPI backend is running!"}
