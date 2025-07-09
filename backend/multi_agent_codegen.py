@@ -55,6 +55,8 @@ def build_file_agent_prompt(step, plan, graph_data, chat_history, user_context):
 def call_gemini(prompt, model):
     """Call Gemini and parse JSON response."""
     response = model.generate_content(prompt)
+    print(response)
+    print(response.text)
     if not response.parts:
         return {"error": "No response from Gemini"}
     text = response.text.strip()

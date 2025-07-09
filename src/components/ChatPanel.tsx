@@ -173,7 +173,7 @@ echo "Setting up repository..."
             userContext: userPrompt 
           }),
         });
-
+        console.log(response);
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({ error: 'Failed to parse error response' }));
           throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
