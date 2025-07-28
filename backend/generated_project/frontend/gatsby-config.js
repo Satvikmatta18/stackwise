@@ -1,11 +1,17 @@
 /**
  * @type {import('gatsby').GatsbyConfig}
  */
-module.exports = {
+const config = {
   siteMetadata: {
-    title: `Gatsby Frontend`,
+    title: `Color Changer App`,
+    description: `A simple Gatsby frontend to change background colors.`,
+    author: `@gatsbyjs`,
     siteUrl: `http://localhost:8000`,
-    description: `A simple Gatsby frontend interacting with a FastAPI backend`
   },
-  plugins: []
+  plugins: [
+    // You can add Gatsby plugins here if needed in the future
+    // For a basic setup, no additional plugins are strictly necessary initially.
+  ],
 };
+
+module.exports = config;

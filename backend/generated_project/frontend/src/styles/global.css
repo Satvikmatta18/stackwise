@@ -1,23 +1,27 @@
-/* frontend/src/styles/global.css */
-
-/* Basic reset for margin and padding, and ensure full viewport coverage */
+/* Reset some default browser styles */
 html,
 body {
   margin: 0;
   padding: 0;
-  height: 100%;
   width: 100%;
-  /* Apply a smooth transition for background-color and color changes */
-  transition: background-color 0.5s ease-in-out, color 0.5s ease-in-out;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+  height: 100%;
+  overflow: hidden; /* Prevent scrollbars if content is smaller than viewport */
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+  transition: background-color 0.5s ease-in-out; /* Smooth transition for background changes */
 }
 
-/* Ensure Gatsby's root elements take up full height to allow body background to fill */
+/* Ensure the main Gatsby page container also takes full height */
 #___gatsby,
 #gatsby-focus-wrapper {
-  min-height: 100vh; /* Minimum height of 100% of the viewport height */
+  height: 100%;
+}
+
+/* Style for the main element if you use it */
+main {
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
+  min-height: 100vh; /* Ensure the content wrapper also takes full viewport height */
+  text-align: center;
 }

@@ -4,27 +4,40 @@ from fastapi.middleware.cors import CORSMiddleware
 app = FastAPI()
 
 # Configure CORS to allow requests from the frontend application
-# Assuming the frontend (React) will run on http://localhost:3000
+# For development, you can allow all origins using "*"
+# In a production environment, you should specify the exact origins of your frontend(s).
+# For example, if your Gatsby frontend runs on http://localhost:8000:
+# origins = [
+#     "http://localhost:8000",
+#     "http://localhost:3000", # Common for React/Vite dev servers
+# ]
 origins = [
-    "http://localhost:3000",  # Default Create React App port
-    "http://127.0.0.1:3000",
-    # Add any other frontend URLs if needed, e.g., for deployment
+    "*" # Allows all origins during development
 ]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"],  # Allow all methods (GET, POST, etc.)
-    allow_headers=["*"],  # Allow all headers
+    allow_methods=["GET"],
+    allow_headers=["*"],
 )
 
-@app.get("/hello")
-async def read_hello():
-    """Simple GET endpoint that returns a greeting message."""
-    return {"message": "Hello from FastAPI backend!"}
-
-# Optional: A root endpoint to verify the API is running
-@app.get("/")
-async def read_root():
-    return {"message": "FastAPI backend is running!"}
+@app.get("/colors")
+async def get_colors():
+    """
+    Returns a predefined list of color names.
+    """
+    colors = [
+        "red",
+        "green",
+        "blue",
+        "purple",
+        "orange",
+        "pink",
+        "cyan",
+        "magenta",
+        "brown",
+        "teal"
+    ]
+    return {"colors": colors}

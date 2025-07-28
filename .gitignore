@@ -28,3 +28,4 @@ backend/.env
 *.sw?
 generated_project/
 backend/__pycache__/
+backend/generated_project/
