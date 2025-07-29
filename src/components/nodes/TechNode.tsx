@@ -30,15 +30,13 @@ const TechNode = ({ data, id }: TechNodeProps) => {
   const [nodeLabel, setNodeLabel] = useState(data.label);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [currentDetails, setCurrentDetails] = useState(data.details || '');
-  const [isEditingDetails, setIsEditingDetails] = useState(false);
-  const [isEditingSections, setIsEditingSections] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
   const [sectionData, setSectionData] = useState<SectionData[]>([]);
   
   useEffect(() => {
     if (isDetailsOpen) {
         setCurrentDetails(data.details || '');
-        setIsEditingDetails(false);
-        setIsEditingSections(false);
+        setIsEditing(false);
         // Initialize section data with default values
         const defaultSections = getComponentInfo(data.type).sections;
         setSectionData(defaultSections);
@@ -207,13 +205,13 @@ const TechNode = ({ data, id }: TechNodeProps) => {
     if (data.onDetailsChange) {
       data.onDetailsChange(id, currentDetails);
     }
-    setIsEditingDetails(false);
+    setIsEditing(false);
     setIsDetailsOpen(false);
   };
 
   const handleDetailsCancel = () => {
       setCurrentDetails(data.details || '');
-      setIsEditingDetails(false);
+      setIsEditing(false);
       setIsDetailsOpen(false);
   };
 
@@ -226,14 +224,14 @@ const TechNode = ({ data, id }: TechNodeProps) => {
   const handleSectionsSave = () => {
     // Here you could save the section data to the node or a separate storage
     // For now, we'll just close the editing mode
-    setIsEditingSections(false);
+    setIsEditing(false);
   };
 
   const handleSectionsCancel = () => {
     // Reset to default values
     const defaultSections = getComponentInfo(data.type).sections;
     setSectionData(defaultSections);
-    setIsEditingSections(false);
+    setIsEditing(false);
   };
 
   return (
@@ -315,17 +313,14 @@ const TechNode = ({ data, id }: TechNodeProps) => {
           <div className="flex justify-between items-center mb-6 flex-shrink-0">
             <h2 className="text-xl font-semibold">{getComponentInfo(data.type).title} - {data.label}</h2>
             <div className="flex gap-2">
-              {!isEditingSections ? (
-                <Button variant="outline" size="sm" onClick={() => setIsEditingSections(true)}>
-                  <Edit className="mr-1 h-4 w-4" /> Edit Sections
+              {!isEditing ? (
+                <Button variant="outline" size="sm" onClick={() => setIsEditing(true)}>
+                  <Edit className="mr-1 h-4 w-4" /> Edit
                 </Button>
               ) : (
-                <div className="flex gap-1">
-                  <Button variant="outline" size="sm" onClick={handleSectionsCancel}>Cancel</Button>
-                  <Button size="sm" onClick={handleSectionsSave}>
-                    <Save className="mr-1 h-4 w-4" /> Save Sections
-                  </Button>
-                </div>
+                <Button size="sm" onClick={handleSectionsSave}>
+                  <Save className="mr-1 h-4 w-4" /> Save
+                </Button>
               )}
             </div>
           </div>
@@ -337,7 +332,7 @@ const TechNode = ({ data, id }: TechNodeProps) => {
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 {sectionData.map((section, index) => (
                   <div key={index} className="bg-white/40 rounded-lg p-4 border border-white/30 min-h-[120px]">
-                    {isEditingSections ? (
+                    {isEditing ? (
                       <div className="space-y-3 h-full flex flex-col">
                         <div>
                           <label className="text-xs font-medium text-gray-700 mb-1 block">Title</label>
@@ -383,7 +378,7 @@ const TechNode = ({ data, id }: TechNodeProps) => {
               {/* Custom Details Section */}
               <div className="flex flex-col min-h-0 border-t border-white/30 pt-4">
                 <h3 className="font-semibold text-sm mb-3">Custom Details</h3>
-                {isEditingDetails ? (
+                {isEditing ? (
                   <Textarea
                     value={currentDetails}
                     onChange={(e) => setCurrentDetails(e.target.value)}
@@ -402,15 +397,8 @@ const TechNode = ({ data, id }: TechNodeProps) => {
           
           {/* Fixed Footer */}
           <div className="flex justify-end space-x-2 pt-4 border-t border-white/30 flex-shrink-0">
-            <Button variant="outline" size="sm" onClick={handleDetailsCancel}>Cancel</Button>
-            {!isEditingDetails ? (
-              <Button size="sm" onClick={() => setIsEditingDetails(true)}>
-                <Edit className="mr-1 h-4 w-4" /> Edit Details
-              </Button>
-            ) : (
-              <Button size="sm" onClick={handleDetailsSave}>
-                 <Save className="mr-1 h-4 w-4" /> Save Details
-              </Button>
+            {isEditing && (
+              <Button variant="outline" size="sm" onClick={handleDetailsCancel}>Cancel</Button>
             )}
           </div>
         </DialogContent>
