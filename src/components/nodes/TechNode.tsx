@@ -4,6 +4,7 @@ import { Trash2, Pen, Save, MoreHorizontal, Edit } from 'lucide-react';
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 interface TechNodeProps {
   data: {
@@ -18,19 +19,31 @@ interface TechNodeProps {
   id: string;
 }
 
+interface SectionData {
+  title: string;
+  subtitle: string;
+  description: string;
+}
+
 const TechNode = ({ data, id }: TechNodeProps) => {
   const [editingLabel, setEditingLabel] = useState(false);
   const [nodeLabel, setNodeLabel] = useState(data.label);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [currentDetails, setCurrentDetails] = useState(data.details || '');
   const [isEditingDetails, setIsEditingDetails] = useState(false);
+  const [isEditingSections, setIsEditingSections] = useState(false);
+  const [sectionData, setSectionData] = useState<SectionData[]>([]);
   
   useEffect(() => {
     if (isDetailsOpen) {
         setCurrentDetails(data.details || '');
         setIsEditingDetails(false);
+        setIsEditingSections(false);
+        // Initialize section data with default values
+        const defaultSections = getComponentInfo(data.type).sections;
+        setSectionData(defaultSections);
     }
-  }, [isDetailsOpen, data.details]);
+  }, [isDetailsOpen, data.details, data.type]);
 
   const nodeTypeColors = {
     frontend: 'bg-blue-500 text-white',
@@ -204,6 +217,25 @@ const TechNode = ({ data, id }: TechNodeProps) => {
       setIsDetailsOpen(false);
   };
 
+  const handleSectionChange = (index: number, field: keyof SectionData, value: string) => {
+    setSectionData(prev => prev.map((section, i) => 
+      i === index ? { ...section, [field]: value } : section
+    ));
+  };
+
+  const handleSectionsSave = () => {
+    // Here you could save the section data to the node or a separate storage
+    // For now, we'll just close the editing mode
+    setIsEditingSections(false);
+  };
+
+  const handleSectionsCancel = () => {
+    // Reset to default values
+    const defaultSections = getComponentInfo(data.type).sections;
+    setSectionData(defaultSections);
+    setIsEditingSections(false);
+  };
+
   return (
     <>
       <div className={`relative px-3 py-2 shadow-md rounded-md w-40 h-24 ${nodeTypeColors[data.type] || nodeTypeColors.custom} flex flex-col justify-between`}>
@@ -278,47 +310,102 @@ const TechNode = ({ data, id }: TechNodeProps) => {
 
       {/* Details Dialog */}
       <Dialog open={isDetailsOpen} onOpenChange={setIsDetailsOpen}>
-        <DialogContent className={`max-w-2xl w-[80vw] h-[70vh] flex flex-col p-4 ${dialogTypeColors[data.type] || dialogTypeColors.custom}`}>
-          <h2 className="text-lg font-semibold mb-4">{getComponentInfo(data.type).title} - {data.label}</h2>
-          
-          <div className="flex-1 flex flex-col min-h-0 gap-4">
-            {/* Component Information Sections */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-              {getComponentInfo(data.type).sections.map((section, index) => (
-                <div key={index} className="bg-white/40 rounded-lg p-3 border border-white/30">
-                  <h3 className="font-semibold text-sm mb-1">{section.title}</h3>
-                  <code className="text-xs bg-black/10 px-2 py-1 rounded font-mono block mb-2">
-                    {section.subtitle}
-                  </code>
-                  <p className="text-xs opacity-80">{section.description}</p>
-                </div>
-              ))}
-            </div>
-
-            {/* Custom Details Section */}
-            <div className="flex-1 flex flex-col min-h-0">
-              <h3 className="font-semibold text-sm mb-2">Custom Details</h3>
-              {isEditingDetails ? (
-                <Textarea
-                  value={currentDetails}
-                  onChange={(e) => setCurrentDetails(e.target.value)}
-                  placeholder="Enter node specifications, version, sub-components..."
-                  className="flex-1 resize-none mb-4 font-mono text-sm bg-white/80 border-0 focus:bg-white"
-                  autoFocus
-                />
+        <DialogContent className={`max-w-3xl w-[85vw] h-[75vh] flex flex-col p-6 ${dialogTypeColors[data.type] || dialogTypeColors.custom}`}>
+          {/* Fixed Header */}
+          <div className="flex justify-between items-center mb-6 flex-shrink-0">
+            <h2 className="text-xl font-semibold">{getComponentInfo(data.type).title} - {data.label}</h2>
+            <div className="flex gap-2">
+              {!isEditingSections ? (
+                <Button variant="outline" size="sm" onClick={() => setIsEditingSections(true)}>
+                  <Edit className="mr-1 h-4 w-4" /> Edit Sections
+                </Button>
               ) : (
-                <div className="flex-1 p-2 border rounded bg-white/60 overflow-auto mb-4 whitespace-pre-wrap font-mono text-sm">
-                  {currentDetails || <span className="text-muted-foreground">No details provided.</span>}
+                <div className="flex gap-1">
+                  <Button variant="outline" size="sm" onClick={handleSectionsCancel}>Cancel</Button>
+                  <Button size="sm" onClick={handleSectionsSave}>
+                    <Save className="mr-1 h-4 w-4" /> Save Sections
+                  </Button>
                 </div>
               )}
             </div>
           </div>
           
-          <div className="flex justify-end space-x-2">
+          {/* Scrollable Content Area */}
+          <div className="flex-1 overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent hover:scrollbar-thumb-gray-400">
+            <div className="flex flex-col gap-6">
+              {/* Component Information Sections */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {sectionData.map((section, index) => (
+                  <div key={index} className="bg-white/40 rounded-lg p-4 border border-white/30 min-h-[120px]">
+                    {isEditingSections ? (
+                      <div className="space-y-3 h-full flex flex-col">
+                        <div>
+                          <label className="text-xs font-medium text-gray-700 mb-1 block">Title</label>
+                          <Input
+                            value={section.title}
+                            onChange={(e) => handleSectionChange(index, 'title', e.target.value)}
+                            placeholder="Section title"
+                            className="text-sm bg-white/90 border-0 focus:bg-white h-8"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-gray-700 mb-1 block">Options</label>
+                          <Input
+                            value={section.subtitle}
+                            onChange={(e) => handleSectionChange(index, 'subtitle', e.target.value)}
+                            placeholder="react | vue | angular"
+                            className="text-xs bg-black/10 border-0 focus:bg-black/20 h-7 font-mono"
+                          />
+                        </div>
+                        <div className="flex-1">
+                          <label className="text-xs font-medium text-gray-700 mb-1 block">Description</label>
+                          <Textarea
+                            value={section.description}
+                            onChange={(e) => handleSectionChange(index, 'description', e.target.value)}
+                            placeholder="Description of this section..."
+                            className="text-xs bg-white/60 border-0 focus:bg-white resize-none h-16"
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="h-full flex flex-col">
+                        <h3 className="font-semibold text-sm mb-2">{section.title}</h3>
+                        <code className="text-xs bg-black/10 px-2 py-1 rounded font-mono block mb-3 flex-shrink-0">
+                          {section.subtitle}
+                        </code>
+                        <p className="text-xs opacity-80 flex-1 leading-relaxed">{section.description}</p>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* Custom Details Section */}
+              <div className="flex flex-col min-h-0 border-t border-white/30 pt-4">
+                <h3 className="font-semibold text-sm mb-3">Custom Details</h3>
+                {isEditingDetails ? (
+                  <Textarea
+                    value={currentDetails}
+                    onChange={(e) => setCurrentDetails(e.target.value)}
+                    placeholder="Enter node specifications, version, sub-components..."
+                    className="resize-none font-mono text-sm bg-white/80 border-0 focus:bg-white min-h-[100px]"
+                    autoFocus
+                  />
+                ) : (
+                  <div className="p-3 border rounded bg-white/60 overflow-auto whitespace-pre-wrap font-mono text-sm min-h-[100px] scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent hover:scrollbar-thumb-gray-400">
+                    {currentDetails || <span className="text-muted-foreground">No details provided.</span>}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+          
+          {/* Fixed Footer */}
+          <div className="flex justify-end space-x-2 pt-4 border-t border-white/30 flex-shrink-0">
             <Button variant="outline" size="sm" onClick={handleDetailsCancel}>Cancel</Button>
             {!isEditingDetails ? (
               <Button size="sm" onClick={() => setIsEditingDetails(true)}>
-                <Edit className="mr-1 h-4 w-4" /> Edit
+                <Edit className="mr-1 h-4 w-4" /> Edit Details
               </Button>
             ) : (
               <Button size="sm" onClick={handleDetailsSave}>
