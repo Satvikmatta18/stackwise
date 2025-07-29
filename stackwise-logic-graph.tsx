@@ -1,13 +1,15 @@
 "use client"
 
-import type React from "react"
+import React from "react"
 
 import { useState, useCallback, useRef } from "react"
-import ReactFlow, {
+import {
+  ReactFlow,
   type Node,
   type Edge,
   addEdge,
   Background,
+  BackgroundVariant,
   type Connection,
   Controls,
   useNodesState,
@@ -15,8 +17,8 @@ import ReactFlow, {
   Handle,
   Position,
   useReactFlow,
-} from "reactflow"
-import "reactflow/dist/style.css"
+} from "@xyflow/react"
+import "@xyflow/react/dist/style.css"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -47,6 +49,7 @@ import {
   Bot,
   Download,
   Trash2,
+  X,
 } from "lucide-react"
 
 // Types
@@ -65,6 +68,14 @@ interface NodeData {
   triggerType?: string
   systemType?: string
   functions?: string[]
+  [key: string]: unknown
+}
+
+interface PopupData {
+  nodeId: string
+  nodeType: string
+  data: NodeData
+  position: { x: number; y: number }
 }
 
 // Custom Node Components
@@ -256,6 +267,118 @@ const nodeTypes = {
   module: ModuleGroupNode,
 }
 
+// Popup Component
+const NodePopup = ({ popupData, onClose }: { popupData: PopupData; onClose: () => void }) => {
+  const getPopupStyles = () => {
+    switch (popupData.nodeType) {
+      case "function":
+        return "bg-blue-50 border-blue-200 text-blue-900"
+      case "trigger":
+        return "bg-green-50 border-green-200 text-green-900"
+      case "system":
+        return "bg-purple-50 border-purple-200 text-purple-900"
+      case "module":
+        return "bg-orange-50 border-orange-200 text-orange-900"
+      default:
+        return "bg-gray-50 border-gray-200 text-gray-900"
+    }
+  }
+
+  const getIcon = () => {
+    switch (popupData.nodeType) {
+      case "function":
+        return <Function className="w-5 h-5" />
+      case "trigger":
+        return <Zap className="w-5 h-5" />
+      case "system":
+        return <Database className="w-5 h-5" />
+      case "module":
+        return <Settings className="w-5 h-5" />
+      default:
+        return <Code className="w-5 h-5" />
+    }
+  }
+
+  const handleClose = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    onClose()
+  }
+
+  return (
+    <div
+      className={`fixed z-50 p-4 rounded-lg border-2 shadow-lg max-w-sm ${getPopupStyles()}`}
+      style={{
+        left: popupData.position.x + 10,
+        top: popupData.position.y - 10,
+      }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          {getIcon()}
+          <h3 className="font-semibold text-sm">{popupData.data.label}</h3>
+        </div>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-6 w-6 p-0 hover:bg-black/10"
+          onClick={handleClose}
+        >
+          <X className="w-3 h-3" />
+        </Button>
+      </div>
+      
+      <div className="space-y-2 text-sm">
+        <p className="text-xs opacity-80">{popupData.data.description}</p>
+        
+        {popupData.nodeType === "function" && popupData.data.inputType && popupData.data.outputType && (
+          <div className="flex items-center gap-2 text-xs">
+            <Badge variant="outline" className="px-2 py-0">
+              {popupData.data.inputType}
+            </Badge>
+            <span>→</span>
+            <Badge variant="outline" className="px-2 py-0">
+              {popupData.data.outputType}
+            </Badge>
+          </div>
+        )}
+        
+        {popupData.nodeType === "trigger" && popupData.data.triggerType && (
+          <Badge variant="secondary" className="text-xs">
+            {popupData.data.triggerType}
+          </Badge>
+        )}
+        
+        {popupData.nodeType === "system" && popupData.data.systemType && (
+          <Badge variant="outline" className="text-xs">
+            {popupData.data.systemType}
+          </Badge>
+        )}
+        
+        {popupData.nodeType === "module" && popupData.data.functions && (
+          <div className="space-y-1">
+            <p className="text-xs font-medium">Functions:</p>
+            <div className="space-y-1">
+              {popupData.data.functions.map((func, idx) => (
+                <div key={idx} className="text-xs bg-white/50 rounded px-2 py-1">
+                  {func}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        
+        <div className="pt-2 border-t border-current/20">
+          <p className="text-xs opacity-70">
+            Sample text: This component handles the core logic for {popupData.data.label.toLowerCase()}. 
+            It processes inputs and generates appropriate outputs based on the defined business rules.
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 const initialNodes: Node[] = [
   {
     id: "1",
@@ -300,10 +423,32 @@ export default function StackWiseLogicGraph() {
   const [isGeneratingCode, setIsGeneratingCode] = useState(false)
   const [generatedCode, setGeneratedCode] = useState("")
   const [showCodeModal, setShowCodeModal] = useState(false)
+  const [selectedNode, setSelectedNode] = useState<PopupData | null>(null)
   const reactFlowWrapper = useRef<HTMLDivElement>(null)
-  const { project } = useReactFlow()
+  const { screenToFlowPosition } = useReactFlow()
 
   const onConnect = useCallback((params: Edge | Connection) => setEdges((eds) => addEdge(params, eds)), [setEdges])
+
+  // Handle node selection
+  const onNodeClick = useCallback((event: React.MouseEvent, node: Node) => {
+    const rect = event.currentTarget.getBoundingClientRect()
+    setSelectedNode({
+      nodeId: node.id,
+      nodeType: node.type || "function",
+      data: node.data as NodeData,
+      position: { x: rect.right, y: rect.top }
+    })
+  }, [])
+
+  // Close popup when clicking outside
+  const handleBackgroundClick = useCallback(() => {
+    setSelectedNode(null)
+  }, [])
+
+  // Handle pane click to close popup
+  const onPaneClick = useCallback(() => {
+    setSelectedNode(null)
+  }, [])
 
   const addNode = useCallback(
     (type: string, position: { x: number; y: number }) => {
@@ -385,14 +530,14 @@ export default function StackWiseLogicGraph() {
         return
       }
 
-      const position = project({
+      const position = screenToFlowPosition({
         x: event.clientX - reactFlowBounds.left,
         y: event.clientY - reactFlowBounds.top,
       })
 
       addNode(type, position)
     },
-    [project, addNode],
+    [screenToFlowPosition, addNode],
   )
 
   const handleDragOver = useCallback((event: React.DragEvent) => {
@@ -698,9 +843,9 @@ export default function App() {
                     .filter((node) => node.type === "function")
                     .map((node) => (
                       <div key={node.id} className="p-2 bg-gray-100 rounded">
-                        <div className="text-sm font-medium">{node.data.label}</div>
+                        <div className="text-sm font-medium">{(node.data as NodeData).label}</div>
                         <div className="text-xs text-gray-600">
-                          {node.data.inputType} → {node.data.outputType}
+                          {(node.data as NodeData).inputType} → {(node.data as NodeData).outputType}
                         </div>
                       </div>
                     ))}
@@ -718,8 +863,8 @@ export default function App() {
                     .filter((node) => node.type === "trigger")
                     .map((node) => (
                       <div key={node.id} className="p-2 bg-green-50 rounded">
-                        <div className="text-sm font-medium">{node.data.label}</div>
-                        <div className="text-xs text-gray-600">{node.data.description}</div>
+                        <div className="text-sm font-medium">{(node.data as NodeData).label}</div>
+                        <div className="text-xs text-gray-600">{(node.data as NodeData).description}</div>
                       </div>
                     ))}
                 </CardContent>
@@ -778,9 +923,11 @@ export default function App() {
               onDragOver={handleDragOver}
               fitView
               className="bg-gray-50"
+              onNodeClick={onNodeClick}
+              onPaneClick={onPaneClick}
             >
               <Controls />
-              <Background variant="dots" gap={20} size={1} />
+              <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
             </ReactFlow>
           </div>
 
@@ -865,6 +1012,14 @@ export default function App() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Node Popup */}
+      {selectedNode && (
+        <NodePopup
+          popupData={selectedNode}
+          onClose={() => setSelectedNode(null)}
+        />
+      )}
     </div>
   )
 }
